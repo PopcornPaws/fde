@@ -1,0 +1,8 @@
+[package]
+name = "fdx"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+bls = { package = "ark-bls12-381", version = "0.4" }
