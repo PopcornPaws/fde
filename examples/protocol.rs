@@ -1,8 +1,6 @@
 use ark_ec::pairing::Pairing;
+use fdx::adaptor_sig::*;
 
-// TODO
-type PublicKey = ();
-type SecretKey = ();
 type Transaction = ();
 
 // encryption engines
@@ -11,15 +9,25 @@ pub struct ElGamal;
 pub struct Paillier;
 
 impl EncryptionEngine for Generic {
-    type Output = Vec<u8>;
-    fn encrypt(&self, data: &[u8]) -> Self::Output {
+    type EncryptionKey = ();
+    type DecryptionKey = ();
+    type PlainText = Vec<u8>;
+    type CipherText = Vec<u8>;
+    fn encrypt(data: &Self::PlainText, key: &Self::EncryptionKey) -> Self::CipherText {
+        Vec::new()
+    }
+    fn decrypt(cipher: Self::CipherText, key: &Self::DecryptionKey) -> Vec<u8> {
         Vec::new()
     }
 }
 
 pub trait EncryptionEngine {
-    type Output;
-    fn encrypt(&self, data: &[u8]) -> Self::Output;
+    type EncryptionKey;
+    type DecryptionKey;
+    type CipherText;
+    type PlainText;
+    fn encrypt(data: &Self::PlainText, key: &Self::EncryptionKey) -> Self::CipherText;
+    fn decrypt(cipher: Self::CipherText, key: &Self::DecryptionKey) -> Vec<u8>;
 }
 
 // backend types
@@ -28,61 +36,50 @@ pub trait EncryptionEngine {
 // pub struct Kzg;
 
 pub trait Backend {
-    type Curve: Pairing;
+    type Signature: AdaptorSignatureScheme;
     type EncryptionEngine: EncryptionEngine; // TODO bound by curve somehow?
     type Commitment; // TODO bound by curve somehow?
 }
 
 pub trait Server {
-    type Fdx: Backend;
-    fn commit(&self, data: &[u8]) -> <Self::Fdx as Backend>::Commitment;
+    type Backend: Backend;
+
+    fn commit(&self, data: &[u8]) -> <Self::Backend as Backend>::Commitment;
+
     fn encrypt(
         &self,
         data: &[u8],
-    ) -> <<Self::Fdx as Backend>::EncryptionEngine as EncryptionEngine>::Output;
-    fn adapt(&self, pre_sig: AdaptorSignature<Pre>) -> AdaptorSignature<Adapted>;
-}
+    ) -> <<Self::Backend as Backend>::EncryptionEngine as EncryptionEngine>::CipherText;
 
-pub struct AdaptorSignature<T>(T);
-
-impl AdaptorSignature<Pre> {
-    pub fn new(sk: SecretKey, message: &[u8], rel_pub: Vec<u8>) -> Self {
-        Self(Pre(Vec::new()))
-    }
-
-    pub fn verify(&self, pk: PublicKey, message: &[u8], rel_pub: Vec<u8>) -> bool {
-        true
-    }
-
-    pub fn adapt(self, pk: PublicKey, rel_priv: Vec<u8>) -> AdaptorSignature<Adapted> {
-        AdaptorSignature(Adapted {
-            pre: self.0 .0,
-            adapted: Vec::new(),
-        })
-    }
-}
-
-impl AdaptorSignature<Adapted> {
-    pub fn extract(&self, rel_pub: Vec<u8>) -> Vec<u8> {
-        Vec::new() // rel_priv
-    }
-}
-
-pub struct Pre(Vec<u8>);
-pub struct Adapted {
-    pre: Vec<u8>,
-    adapted: Vec<u8>,
+    fn adapt(
+        &self,
+        pre_sig: <Self::Backend as Backend>::Signature,
+    ) -> <<Self::Backend as Backend>::Signature as AdaptorSignatureScheme>::AdaptedSignature;
 }
 
 pub trait Client {
-    type DataSource: Server;
+    type Server: Server;
     fn check(
-        commitment: <<Self::DataSource as Server>::Fdx as Backend>::Commitment,
-        encryption: <<<Self::DataSource as Server>::Fdx as Backend>::EncryptionEngine as EncryptionEngine>::Output,
+        commitment: <<Self::Server as Server>::Backend as Backend>::Commitment,
+        encryption: <<<Self::Server as Server>::Backend as Backend>::EncryptionEngine as EncryptionEngine>::CipherText,
     ) -> bool;
-    fn pre_sign(&self, tx: Transaction, pk_s: PublicKey) -> AdaptorSignature<Pre>;
-    fn extract(&self, signature: AdaptorSignature<Adapted>, pk_s: PublicKey) -> SecretKey;
-    fn decrypt(&self, sk_s: SecretKey) -> Vec<u8>;
+
+    fn pre_sign(
+        &self,
+        tx: Transaction,
+        adaptor_pubkey: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PublicKey,
+    ) -> <<Self::Server as Server>::Backend as Backend>::Signature;
+
+    fn extract(
+        &self,
+        signature: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::AdaptedSignature,
+        adaptor_pk: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PublicKey,
+    ) -> <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::SecretKey;
+
+    fn decrypt(
+        &self,
+        sk_s: <<<Self::Server as Server>::Backend as Backend>::EncryptionEngine as EncryptionEngine>::DecryptionKey,
+    ) -> Vec<u8>;
 }
 
 fn main() {
