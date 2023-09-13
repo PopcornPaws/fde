@@ -5,10 +5,14 @@ edition = "2021"
 
 
 [dependencies]
-bls = { package = "ark-bls12-381", version = "0.4" }
 ark-crypto-primitives = { version = "0.4", features = ["signature"] }
 ark-ec = "0.4" 
 ark-ff = "0.4" 
 ark-serialize = "0.4"
 ark-std = "0.4"
 digest = "0.10"
+
+[dev-dependencies]
+bls = { package = "ark-bls12-381", version = "0.4" }
+secp256k1 = { package = "ark-secp256k1", version = "0.4" }
+sha3 = "0.10"
