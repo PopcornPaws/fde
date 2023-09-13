@@ -1,3 +1,4 @@
+use ark_crypto_primitives::signature::SignatureScheme;
 use ark_ec::pairing::Pairing;
 use fdx::adaptor_sig::*;
 
@@ -53,8 +54,8 @@ pub trait Server {
 
     fn adapt(
         &self,
-        pre_sig: <Self::Backend as Backend>::Signature,
-    ) -> <<Self::Backend as Backend>::Signature as AdaptorSignatureScheme>::AdaptedSignature;
+        pre_sig: <<Self::Backend as Backend>::Signature as AdaptorSignatureScheme>::PreSignature,
+    ) -> <<Self::Backend as Backend>::Signature as SignatureScheme>::Signature;
 }
 
 pub trait Client {
@@ -67,14 +68,15 @@ pub trait Client {
     fn pre_sign(
         &self,
         tx: Transaction,
-        adaptor_pubkey: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PublicKey,
-    ) -> <<Self::Server as Server>::Backend as Backend>::Signature;
+        adaptor_pubkey: <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::PublicKey,
+    ) -> <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PreSignature;
 
     fn extract(
         &self,
-        signature: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::AdaptedSignature,
-        adaptor_pk: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PublicKey,
-    ) -> <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::SecretKey;
+        pre_signature: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PreSignature,
+        signature: <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::Signature,
+        adaptor_pk: <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::PublicKey,
+    ) -> <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::SecretKey;
 
     fn decrypt(
         &self,

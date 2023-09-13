@@ -1,23 +1,14 @@
-use ark_crypto_primitives::signature::schnorr::{Schnorr, SecretKey};
+use ark_crypto_primitives::signature::schnorr::{Schnorr, SecretKey, Signature};
 use ark_crypto_primitives::signature::SignatureScheme;
 use ark_crypto_primitives::Error;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{Field, UniformRand};
 use ark_serialize::CanonicalSerialize;
-use ark_std::ops::{Neg, Sub};
 use ark_std::rand::Rng;
 use digest::Digest;
 
-pub struct PreSchnorr<C: CurveGroup>(C::ScalarField, C::Affine);
-pub struct AdaptedSchnorr<C: CurveGroup>(C::ScalarField, C::Affine);
-
-pub trait AdaptorSignatureScheme {
-    type PublicKey;
-    type SecretKey;
+pub trait AdaptorSignatureScheme: SignatureScheme {
     type PreSignature;
-    type AdaptedSignature;
-
-    fn keygen<R: Rng>(rng: &mut R) -> (Self::PublicKey, Self::SecretKey);
 
     fn pre_sign<R: Rng>(
         adaptor_pk: &Self::PublicKey,
@@ -35,32 +26,18 @@ pub trait AdaptorSignatureScheme {
 
     fn adapt(
         signature: &Self::PreSignature,
-        signer_pk: &Self::PublicKey,
         adaptor_sk: &Self::SecretKey,
-    ) -> Result<Self::AdaptedSignature, Error>;
+    ) -> Result<Self::Signature, Error>;
 
     fn extract(
         pre_signature: &Self::PreSignature,
-        signature: &Self::AdaptedSignature,
+        signature: &Self::Signature,
         adaptor_pk: &Self::PublicKey,
     ) -> Result<Self::SecretKey, Error>;
 }
 
-impl<C: CurveGroup, D: Digest + Send + Sync> AdaptorSignatureScheme for Schnorr<C, D>
-where
-    <C as CurveGroup>::Affine: Neg<Output = <C as CurveGroup>::Affine>,
-{
-    type SecretKey = <Self as SignatureScheme>::SecretKey;
-    type PublicKey = <Self as SignatureScheme>::PublicKey;
-    type PreSignature = PreSchnorr<C>;
-    type AdaptedSignature = AdaptedSchnorr<C>;
-
-    fn keygen<R: Rng>(rng: &mut R) -> (Self::PublicKey, Self::SecretKey) {
-        let sk = C::ScalarField::rand(rng);
-        let pk = (<C::Affine as AffineRepr>::generator() * sk).into_affine();
-        (pk, SecretKey(sk))
-    }
-
+impl<C: CurveGroup, D: Digest + Send + Sync> AdaptorSignatureScheme for Schnorr<C, D> {
+    type PreSignature = Signature<C>;
     fn pre_sign<R: Rng>(
         adaptor_pk: &Self::PublicKey,
         signer_sk: &Self::SecretKey,
@@ -68,18 +45,21 @@ where
         rng: &mut R,
     ) -> Result<Self::PreSignature, Error> {
         let signer_pk = (<C::Affine as AffineRepr>::generator() * signer_sk.0).into_affine();
-        // r sampled randomly
+        // random nonce (r) sampled uniformly
         let random_nonce = C::ScalarField::rand(rng);
-        // R_hat = r * G + Y (commitment)
+        // commitment is shifted by the adaptor's pubkey
+        // R_hat = r * G + Y
         let commitment =
             (<C::Affine as AffineRepr>::generator() * random_nonce + adaptor_pk).into_affine();
-        // compute challenge from public values
-        let challenge = hash_challenge::<C, D>(&commitment, &signer_pk, message)?;
+        // compute challenge from public values (R_hat, X, m)
+        let verifier_challenge = hash_challenge::<C, D>(&commitment, &signer_pk, message)?;
+        // s_hat = r - cx
+        let prover_response = random_nonce - verifier_challenge * signer_sk.0;
 
-        Ok(PreSchnorr(
-            random_nonce + challenge * signer_sk.0,
-            commitment,
-        ))
+        Ok(Signature {
+            prover_response,
+            verifier_challenge,
+        })
     }
 
     fn verify(
@@ -88,15 +68,17 @@ where
         signer_pk: &Self::PublicKey,
         message: &[u8],
     ) -> Result<(), Error> {
-        let &PreSchnorr(s_scalar, commitment) = signature;
+        let &Signature {
+            prover_response,
+            verifier_challenge,
+        } = signature;
+        // s_hat * G + c * X + Y
+        let commitment = <C::Affine as AffineRepr>::generator() * prover_response
+            + *signer_pk * verifier_challenge
+            + adaptor_pk;
         // compute challenge
-        let challenge = hash_challenge::<C, D>(&commitment, signer_pk, message)?;
-        // compute s * G
-        let s_point = <C::Affine as AffineRepr>::generator() * s_scalar;
-        // compute R_hat - Y
-        let r_point = commitment + adaptor_pk.neg();
-        // check s * G =? R_hat - Y + c * P
-        if s_point != r_point + *signer_pk * challenge {
+        let challenge = hash_challenge::<C, D>(&commitment.into_affine(), signer_pk, message)?;
+        if challenge != verifier_challenge {
             Err("verification failure".into())
         } else {
             Ok(())
@@ -105,24 +87,36 @@ where
 
     fn adapt(
         signature: &Self::PreSignature,
-        signer_pk: &Self::PublicKey,
         adaptor_sk: &Self::SecretKey,
-    ) -> Result<Self::AdaptedSignature, Error> {
-        let &PreSchnorr(s_scalar, commitment) = signature;
-        Ok(AdaptedSchnorr(s_scalar + adaptor_sk.0, commitment))
+    ) -> Result<Self::Signature, Error> {
+        let &Signature {
+            prover_response,
+            verifier_challenge,
+        } = signature;
+        Ok(Signature {
+            prover_response: prover_response + adaptor_sk.0,
+            verifier_challenge,
+        })
     }
 
     fn extract(
         pre_signature: &Self::PreSignature,
-        signature: &Self::AdaptedSignature,
+        signature: &Self::Signature,
         adaptor_pk: &Self::PublicKey,
     ) -> Result<Self::SecretKey, Error> {
-        let &PreSchnorr(s_scalar, pre_commitment) = pre_signature;
-        let &AdaptedSchnorr(s_scalar_hat, commitment) = signature;
-        if pre_commitment != commitment {
-            Err("commitment mismatch".into())
+        let &Signature {
+            prover_response: pre_prover_response,
+            ..
+        } = pre_signature;
+        let &Signature {
+            prover_response, ..
+        } = signature;
+        let sk = prover_response - pre_prover_response;
+        let pk = (<C::Affine as AffineRepr>::generator() * sk).into_affine();
+        if pk != *adaptor_pk {
+            Err("invalid signatures".into())
         } else {
-            Ok(SecretKey(s_scalar_hat - s_scalar))
+            Ok(SecretKey(sk))
         }
     }
 }
@@ -151,12 +145,23 @@ mod test {
 
     type Scheme = Schnorr<Secp256k1, Keccak256>;
 
+    fn keygen<R: Rng>(
+        rng: &mut R,
+    ) -> (
+        <Scheme as SignatureScheme>::PublicKey,
+        <Scheme as SignatureScheme>::SecretKey,
+    ) {
+        let mut parameters = Scheme::setup(rng).unwrap();
+        parameters.generator = Secp256k1::generator().into_affine();
+        Scheme::keygen(&parameters, rng).unwrap()
+    }
+
     #[test]
     fn completeness() {
         // setup and keygen
         let rng = &mut test_rng();
-        let (signer_pk, signer_sk) = <Scheme as AdaptorSignatureScheme>::keygen(rng);
-        let (adaptor_pk, adaptor_sk) = <Scheme as AdaptorSignatureScheme>::keygen(rng);
+        let (signer_pk, signer_sk) = keygen(rng);
+        let (adaptor_pk, adaptor_sk) = keygen(rng);
 
         // pre-signature generation
         let message = b"hello adaptor signature";
@@ -171,14 +176,17 @@ mod test {
         .is_ok());
 
         // adapt and verify signature
-        let adapted_sig = Scheme::adapt(&pre_sig, &signer_pk, &adaptor_sk).unwrap();
+        let adapted_sig = Scheme::adapt(&pre_sig, &adaptor_sk).unwrap();
+
+        // s + y
+        let commitment = Secp256k1::generator() * adapted_sig.prover_response
+            + signer_pk * adapted_sig.verifier_challenge;
 
         let challenge =
-            hash_challenge::<Secp256k1, Keccak256>(&adapted_sig.1, &signer_pk, message).unwrap();
-        assert_eq!(
-            (Secp256k1::generator() * adapted_sig.0).into_affine(),
-            (adapted_sig.1 + signer_pk * challenge).into_affine()
-        );
+            hash_challenge::<Secp256k1, Keccak256>(&commitment.into_affine(), &signer_pk, message)
+                .unwrap();
+
+        assert_eq!(challenge, adapted_sig.verifier_challenge);
 
         // extract adaptor secret key
         let extracted_sk = Scheme::extract(&pre_sig, &adapted_sig, &adaptor_pk).unwrap();
@@ -189,13 +197,13 @@ mod test {
     fn soundness() {
         // setup and keygen
         let rng = &mut test_rng();
-        let (signer_pk, signer_sk) = <Scheme as AdaptorSignatureScheme>::keygen(rng);
-        let (adaptor_pk, adaptor_sk) = <Scheme as AdaptorSignatureScheme>::keygen(rng);
+        let (signer_pk, signer_sk) = keygen(rng);
+        let (adaptor_pk, _adaptor_sk) = keygen(rng);
 
         let message = b"hello adaptor signature";
 
         // pre-signature generation (with invalid adaptor pubkey)
-        let pre_sig = Scheme::pre_sign(&adaptor_pk.neg(), &signer_sk, message, rng).unwrap();
+        let pre_sig = Scheme::pre_sign(&signer_pk, &signer_sk, message, rng).unwrap();
         assert!(<Scheme as AdaptorSignatureScheme>::verify(
             &pre_sig,
             &adaptor_pk,
@@ -205,7 +213,7 @@ mod test {
         .is_err());
 
         // pre-signature generation (with invalid message pubkey)
-        let pre_sig = Scheme::pre_sign(&adaptor_pk.neg(), &signer_sk, b"invalid", rng).unwrap();
+        let pre_sig = Scheme::pre_sign(&adaptor_pk, &signer_sk, b"invalid", rng).unwrap();
         assert!(<Scheme as AdaptorSignatureScheme>::verify(
             &pre_sig,
             &adaptor_pk,
@@ -215,27 +223,29 @@ mod test {
         .is_err());
 
         // valid pre-signature
-        let pre_sig = Scheme::pre_sign(&adaptor_pk.neg(), &signer_sk, message, rng).unwrap();
+        let pre_sig = Scheme::pre_sign(&adaptor_pk, &signer_sk, message, rng).unwrap();
         assert!(<Scheme as AdaptorSignatureScheme>::verify(
             &pre_sig,
             &adaptor_pk,
             &signer_pk,
             message
         )
-        .is_err());
+        .is_ok());
 
         // adapt with invalid secret key
-        let adapted_sig = Scheme::adapt(&pre_sig, &signer_pk, &signer_sk).unwrap();
+        let adapted_sig = Scheme::adapt(&pre_sig, &signer_sk).unwrap();
         // signature will be invalid, thus it will be rejected when checked by a 3rd party
+        // s + y
+        let commitment = Secp256k1::generator() * adapted_sig.prover_response
+            + signer_pk * adapted_sig.verifier_challenge;
+
         let challenge =
-            hash_challenge::<Secp256k1, Keccak256>(&adapted_sig.1, &signer_pk, message).unwrap();
-        assert_ne!(
-            (Secp256k1::generator() * adapted_sig.0).into_affine(),
-            (adapted_sig.1 + signer_pk * challenge).into_affine()
-        );
+            hash_challenge::<Secp256k1, Keccak256>(&commitment.into_affine(), &signer_pk, message)
+                .unwrap();
+
+        assert_ne!(challenge, adapted_sig.verifier_challenge);
 
         // extract invalid adaptor secret key
-        let extracted_sk = Scheme::extract(&pre_sig, &adapted_sig, &adaptor_pk).unwrap();
-        assert_ne!(extracted_sk.0, adaptor_sk.0);
+        assert!(Scheme::extract(&pre_sig, &adapted_sig, &adaptor_pk).is_err());
     }
 }
