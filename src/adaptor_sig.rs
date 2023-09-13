@@ -68,15 +68,13 @@ where
         rng: &mut R,
     ) -> Result<Self::PreSignature, Error> {
         let signer_pk = (<C::Affine as AffineRepr>::generator() * signer_sk.0).into_affine();
-        // r
+        // r sampled randomly
         let random_nonce = C::ScalarField::rand(rng);
-        // R_hat = r * G + Y
-        // TODO is commitment allowed to be zero?
+        // R_hat = r * G + Y (commitment)
         let commitment =
             (<C::Affine as AffineRepr>::generator() * random_nonce + adaptor_pk).into_affine();
+        // compute challenge from public values
         let challenge = hash_challenge::<C, D>(&commitment, &signer_pk, message)?;
-
-        commitment + adaptor_pk.neg() + *adaptor_pk * challenge;
 
         Ok(PreSchnorr(
             random_nonce + challenge * signer_sk.0,
@@ -91,13 +89,13 @@ where
         message: &[u8],
     ) -> Result<(), Error> {
         let &PreSchnorr(s_scalar, commitment) = signature;
-
+        // compute challenge
         let challenge = hash_challenge::<C, D>(&commitment, signer_pk, message)?;
-
+        // compute s * G
         let s_point = <C::Affine as AffineRepr>::generator() * s_scalar;
-        // R_hat - Y
+        // compute R_hat - Y
         let r_point = commitment + adaptor_pk.neg();
-
+        // check s * G =? R_hat - Y + c * P
         if s_point != r_point + *signer_pk * challenge {
             Err("verification failure".into())
         } else {
@@ -195,9 +193,9 @@ mod test {
         let (adaptor_pk, adaptor_sk) = <Scheme as AdaptorSignatureScheme>::keygen(rng);
 
         let message = b"hello adaptor signature";
+
         // pre-signature generation (with invalid adaptor pubkey)
         let pre_sig = Scheme::pre_sign(&adaptor_pk.neg(), &signer_sk, message, rng).unwrap();
-        // verify pre-signature
         assert!(<Scheme as AdaptorSignatureScheme>::verify(
             &pre_sig,
             &adaptor_pk,
@@ -208,7 +206,6 @@ mod test {
 
         // pre-signature generation (with invalid message pubkey)
         let pre_sig = Scheme::pre_sign(&adaptor_pk.neg(), &signer_sk, b"invalid", rng).unwrap();
-        // verify pre-signature
         assert!(<Scheme as AdaptorSignatureScheme>::verify(
             &pre_sig,
             &adaptor_pk,
@@ -216,5 +213,29 @@ mod test {
             message
         )
         .is_err());
+
+        // valid pre-signature
+        let pre_sig = Scheme::pre_sign(&adaptor_pk.neg(), &signer_sk, message, rng).unwrap();
+        assert!(<Scheme as AdaptorSignatureScheme>::verify(
+            &pre_sig,
+            &adaptor_pk,
+            &signer_pk,
+            message
+        )
+        .is_err());
+
+        // adapt with invalid secret key
+        let adapted_sig = Scheme::adapt(&pre_sig, &signer_pk, &signer_sk).unwrap();
+        // signature will be invalid, thus it will be rejected when checked by a 3rd party
+        let challenge =
+            hash_challenge::<Secp256k1, Keccak256>(&adapted_sig.1, &signer_pk, message).unwrap();
+        assert_ne!(
+            (Secp256k1::generator() * adapted_sig.0).into_affine(),
+            (adapted_sig.1 + signer_pk * challenge).into_affine()
+        );
+
+        // extract invalid adaptor secret key
+        let extracted_sk = Scheme::extract(&pre_sig, &adapted_sig, &adaptor_pk).unwrap();
+        assert_ne!(extracted_sk.0, adaptor_sk.0);
     }
 }
