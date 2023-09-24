@@ -1,5 +1,7 @@
+/*
 use ark_crypto_primitives::signature::SignatureScheme;
 use fdx::adaptor_sig::*;
+use fdx::backend::*;
 use fdx::encrypt::*;
 
 type Transaction = ();
@@ -9,13 +11,8 @@ type Transaction = ();
 // pub struct Ipa;
 // pub struct Kzg;
 
-pub trait Backend {
-    type Signature: AdaptorSignatureScheme;
-    type EncryptionEngine: EncryptionEngine; // TODO bound by curve somehow?
-    type Commitment; // TODO bound by curve somehow?
-}
-
 pub trait Server {
+    type Signature: AdaptorSignatureScheme;
     type Backend: Backend;
 
     fn commit(&self, data: &[u8]) -> <Self::Backend as Backend>::Commitment;
@@ -27,8 +24,8 @@ pub trait Server {
 
     fn adapt(
         &self,
-        pre_sig: <<Self::Backend as Backend>::Signature as AdaptorSignatureScheme>::PreSignature,
-    ) -> <<Self::Backend as Backend>::Signature as SignatureScheme>::Signature;
+        pre_sig: <Self::Signature as AdaptorSignatureScheme>::PreSignature,
+    ) -> <Self::Signature as SignatureScheme>::Signature;
 }
 
 pub trait Client {
@@ -41,21 +38,22 @@ pub trait Client {
     fn pre_sign(
         &self,
         tx: Transaction,
-        adaptor_pubkey: <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::PublicKey,
-    ) -> <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PreSignature;
+        adaptor_pubkey: <<Self::Server as Server>::Signature as SignatureScheme>::PublicKey,
+    ) -> <<Self::Server as Server>::Signature as AdaptorSignatureScheme>::PreSignature;
 
     fn extract(
         &self,
-        pre_signature: <<<Self::Server as Server>::Backend as Backend>::Signature as AdaptorSignatureScheme>::PreSignature,
-        signature: <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::Signature,
-        adaptor_pk: <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::PublicKey,
-    ) -> <<<Self::Server as Server>::Backend as Backend>::Signature as SignatureScheme>::SecretKey;
+        pre_signature: <<Self::Server as Server>::Signature as AdaptorSignatureScheme>::PreSignature,
+        signature: <<Self::Server as Server>::Signature as SignatureScheme>::Signature,
+        adaptor_pk: <<Self::Server as Server>::Signature as SignatureScheme>::PublicKey,
+    ) -> <<Self::Server as Server>::Signature as SignatureScheme>::SecretKey;
 
     fn decrypt(
         &self,
         sk_s: <<<Self::Server as Server>::Backend as Backend>::EncryptionEngine as EncryptionEngine>::DecryptionKey,
     ) -> Vec<u8>;
 }
+*/
 
 fn main() {
     /* SERVER
@@ -77,3 +75,4 @@ fn main() {
      *
      */
 }
+

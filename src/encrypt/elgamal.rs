@@ -1,19 +1,16 @@
+use super::EncryptionEngine;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::marker::PhantomData;
 use ark_std::ops::{Add, Neg};
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
-// encryption engines
-//pub struct Generic;
-//pub struct Paillier;
-
 pub struct ExponentialElGamal<C>(pub PhantomData<C>);
 
 #[derive(Clone, Copy, Debug)]
-pub struct ElGamalCipher<C: CurveGroup>([C::Affine; 2]);
+pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
 
-impl<C: CurveGroup> ElGamalCipher<C> {
+impl<C: CurveGroup> Cipher<C> {
     pub fn c0(&self) -> C::Affine {
         self.0[0]
     }
@@ -23,7 +20,7 @@ impl<C: CurveGroup> ElGamalCipher<C> {
     }
 }
 
-impl<C: CurveGroup> Add for ElGamalCipher<C> {
+impl<C: CurveGroup> Add for Cipher<C> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         Self([
@@ -33,26 +30,13 @@ impl<C: CurveGroup> Add for ElGamalCipher<C> {
     }
 }
 
-pub trait EncryptionEngine {
-    type EncryptionKey;
-    type DecryptionKey;
-    type Cipher;
-    type PlainText;
-    fn encrypt<R: Rng>(
-        data: &Self::PlainText,
-        key: &Self::EncryptionKey,
-        rng: &mut R,
-    ) -> Self::Cipher;
-    fn decrypt(cipher: Self::Cipher, key: &Self::DecryptionKey) -> Self::PlainText;
-}
-
 impl<C: CurveGroup> EncryptionEngine for ExponentialElGamal<C>
 where
     C::Affine: Neg<Output = C::Affine>,
 {
     type EncryptionKey = C::Affine;
     type DecryptionKey = C::ScalarField;
-    type Cipher = ElGamalCipher<C>;
+    type Cipher = Cipher<C>;
     type PlainText = C::ScalarField;
 
     fn encrypt<R: Rng>(
@@ -74,25 +58,25 @@ impl<C: CurveGroup> ExponentialElGamal<C>
 where
     C::Affine: Neg<Output = C::Affine>,
 {
-    fn encrypt_with_randomness(
+    pub fn encrypt_with_randomness(
         data: &C::ScalarField,
         key: &C::Affine,
         randomness: C::ScalarField,
-    ) -> ElGamalCipher<C> {
+    ) -> Cipher<C> {
         let shared_secret = *key * randomness;
         let c1 = <C::Affine as AffineRepr>::generator() * randomness;
         let c2 = <C::Affine as AffineRepr>::generator() * data + shared_secret;
-        ElGamalCipher([c1.into_affine(), c2.into_affine()])
+        Cipher([c1.into_affine(), c2.into_affine()])
     }
 
-    fn decrypt_exp(cipher: ElGamalCipher<C>, key: &C::ScalarField) -> C::Affine {
+    pub fn decrypt_exp(cipher: Cipher<C>, key: &C::ScalarField) -> C::Affine {
         let shared_secret = (cipher.c0() * key).into_affine();
         (cipher.c1() + shared_secret.neg()).into_affine()
     }
 
-    fn brute_force(decrypted: C::Affine) -> C::ScalarField {
+    pub fn brute_force(decrypted: C::Affine) -> C::ScalarField {
         let mut exponent = C::ScalarField::zero();
-        while (<C::Affine as AffineRepr>::generator() * exponent).into_affine() != decrypted {
+        loop (<C::Affine as AffineRepr>::generator() * exponent).into_affine() != decrypted && exponent{
             exponent += C::ScalarField::one();
         }
         exponent
