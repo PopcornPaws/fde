@@ -23,7 +23,7 @@ pub trait Server {
     fn encrypt(
         &self,
         data: &[u8],
-    ) -> <<Self::Backend as Backend>::EncryptionEngine as EncryptionEngine>::CipherText;
+    ) -> <<Self::Backend as Backend>::EncryptionEngine as EncryptionEngine>::Cipher;
 
     fn adapt(
         &self,
@@ -35,7 +35,7 @@ pub trait Client {
     type Server: Server;
     fn check(
         commitment: <<Self::Server as Server>::Backend as Backend>::Commitment,
-        encryption: <<<Self::Server as Server>::Backend as Backend>::EncryptionEngine as EncryptionEngine>::CipherText,
+        encryption: <<<Self::Server as Server>::Backend as Backend>::EncryptionEngine as EncryptionEngine>::Cipher,
     ) -> bool;
 
     fn pre_sign(
