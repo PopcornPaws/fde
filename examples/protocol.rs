@@ -1,35 +1,8 @@
 use ark_crypto_primitives::signature::SignatureScheme;
-use ark_ec::pairing::Pairing;
 use fdx::adaptor_sig::*;
+use fdx::encrypt::*;
 
 type Transaction = ();
-
-// encryption engines
-pub struct Generic;
-pub struct ElGamal;
-pub struct Paillier;
-
-impl EncryptionEngine for Generic {
-    type EncryptionKey = ();
-    type DecryptionKey = ();
-    type PlainText = Vec<u8>;
-    type CipherText = Vec<u8>;
-    fn encrypt(data: &Self::PlainText, key: &Self::EncryptionKey) -> Self::CipherText {
-        Vec::new()
-    }
-    fn decrypt(cipher: Self::CipherText, key: &Self::DecryptionKey) -> Vec<u8> {
-        Vec::new()
-    }
-}
-
-pub trait EncryptionEngine {
-    type EncryptionKey;
-    type DecryptionKey;
-    type CipherText;
-    type PlainText;
-    fn encrypt(data: &Self::PlainText, key: &Self::EncryptionKey) -> Self::CipherText;
-    fn decrypt(cipher: Self::CipherText, key: &Self::DecryptionKey) -> Vec<u8>;
-}
 
 // backend types
 // pub struct Snark;
