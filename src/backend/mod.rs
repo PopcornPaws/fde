@@ -17,9 +17,13 @@ pub struct ElGamalWithKzg<C, P> {
     _polycommit: PhantomData<P>,
 }
 
+// proof for a single scalar
+// if |F| = 2^256, then short ciphers should
+// have length 8, because we split a single scalar
+// into eight u32
 pub struct Proof<C: Pairing, P> {
     short_ciphers: Vec<Cipher>,
-    long_ciphers: Vec<Cipher>,
+    long_cipher: Cipher,
     commitment_poly_t: Commitment,
     commitment_poly_r: Commitment,
     h_s_star: C::G1Affine,
