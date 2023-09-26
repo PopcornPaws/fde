@@ -1,7 +1,7 @@
 use super::EncryptionEngine;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::marker::PhantomData;
-use ark_std::ops::{Add, Neg};
+use ark_std::ops::Add;
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
@@ -30,10 +30,7 @@ impl<C: CurveGroup> Add for Cipher<C> {
     }
 }
 
-impl<C: CurveGroup> EncryptionEngine for ExponentialElGamal<C>
-where
-    C::Affine: Neg<Output = C::Affine>,
-{
+impl<C: CurveGroup> EncryptionEngine for ExponentialElGamal<C> {
     type EncryptionKey = C::Affine;
     type DecryptionKey = C::ScalarField;
     type Cipher = Cipher<C>;
@@ -54,10 +51,7 @@ where
     }
 }
 
-impl<C: CurveGroup> ExponentialElGamal<C>
-where
-    C::Affine: Neg<Output = C::Affine>,
-{
+impl<C: CurveGroup> ExponentialElGamal<C> {
     pub fn encrypt_with_randomness(
         data: &C::ScalarField,
         key: &C::Affine,
@@ -71,12 +65,18 @@ where
 
     pub fn decrypt_exp(cipher: Cipher<C>, key: &C::ScalarField) -> C::Affine {
         let shared_secret = (cipher.c0() * key).into_affine();
-        (cipher.c1() + shared_secret.neg()).into_affine()
+        // AffineRepr has to be converted into a Group element in order to perform subtraction but
+        // I believe this is optimized away in release mode
+        (cipher.c1().into() - shared_secret.into()).into_affine()
     }
 
     pub fn brute_force(decrypted: C::Affine) -> C::ScalarField {
+        let max = C::ScalarField::from(u32::MAX);
         let mut exponent = C::ScalarField::zero();
-        loop (<C::Affine as AffineRepr>::generator() * exponent).into_affine() != decrypted && exponent{
+
+        while (<C::Affine as AffineRepr>::generator() * exponent).into_affine() != decrypted
+            && exponent < max
+        {
             exponent += C::ScalarField::one();
         }
         exponent
