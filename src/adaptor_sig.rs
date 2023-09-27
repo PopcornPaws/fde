@@ -141,7 +141,7 @@ mod test {
     use super::*;
     use ark_ec::Group;
     use ark_std::test_rng;
-    use secp256k1::Projective as Secp256k1;
+    use ark_secp256k1::Projective as Secp256k1;
     use sha3::Keccak256;
 
     type Scheme = Schnorr<Secp256k1, Keccak256>;

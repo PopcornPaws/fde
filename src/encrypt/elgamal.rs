@@ -88,7 +88,7 @@ mod test {
     use super::*;
     use ark_ec::Group;
     use ark_std::test_rng;
-    use bls::{Fr, G1Projective as BlsG1};
+    use ark_bls12_381::{Fr, G1Projective as BlsG1};
 
     type Engine = ExponentialElGamal<BlsG1>;
 
