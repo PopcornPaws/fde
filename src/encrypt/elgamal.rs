@@ -5,7 +5,7 @@ use ark_std::ops::Add;
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
-pub struct ExponentialElGamal<C>(pub PhantomData<C>);
+pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 
 #[derive(Clone, Copy, Debug)]
 pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
@@ -30,7 +30,7 @@ impl<C: CurveGroup> Add for Cipher<C> {
     }
 }
 
-impl<C: CurveGroup> EncryptionEngine for ExponentialElGamal<C> {
+impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
     type EncryptionKey = C::Affine;
     type DecryptionKey = C::ScalarField;
     type Cipher = Cipher<C>;
@@ -51,7 +51,7 @@ impl<C: CurveGroup> EncryptionEngine for ExponentialElGamal<C> {
     }
 }
 
-impl<C: CurveGroup> ExponentialElGamal<C> {
+impl<C: CurveGroup> ExponentialElgamal<C> {
     pub fn encrypt_with_randomness(
         data: &C::ScalarField,
         key: &C::Affine,
@@ -90,7 +90,7 @@ mod test {
     use ark_std::test_rng;
     use ark_bls12_381::{Fr, G1Projective as BlsG1};
 
-    type Engine = ExponentialElGamal<BlsG1>;
+    type Engine = ExponentialElgamal<BlsG1>;
 
     #[test]
     fn exponential_elgamal() {

@@ -1,16 +1,18 @@
+use crate::encrypt::elgamal::ExponentialElgamal;
+use crate::encrypt::EncryptionEngine;
+use ark_ec::pairing::Pairing;
 // proof for a single scalar
 // if |F| = 2^256, then short ciphers should
 // have length 8, because we split a single scalar
 // into eight u32
-//pub struct Proof<C: Pairing, P> {
-//    short_ciphers: Vec<<ExponentialElGamal<C::G1> as EncryptionEngine>::Cipher>,
-//    long_cipher: <ExponentialElGamal<C::G1> as EncryptionEngine>::Cipher,
-//    commitment_poly_f: Commitment<C>,
-//    commitment_poly_t: Commitment<C>,
-//    commitment_poly_r: Commitment<C>,
-//    h_secret_star: C::G1Affine,
-//    _poly: PhantomData<P>,
-//}
+pub struct Proof<C: Pairing> {
+    short_ciphers: Vec<<ExponentialElgamal<C::G1> as EncryptionEngine>::Cipher>,
+    long_cipher: <ExponentialElgamal<C::G1> as EncryptionEngine>::Cipher,
+    commitment_poly_f: C::G1Affine,
+    commitment_poly_t: C::G1Affine,
+    commitment_poly_r: C::G1Affine,
+    h_secret_star: C::G2Affine,
+}
 
 //impl<C, P> Proof<C, P>
 //where
@@ -30,13 +32,14 @@
 
 #[cfg(test)]
 mod test {
-    use crate::backend::kzg::Powers;
-    use crate::encrypt::elgamal::ExponentialElGamal;
+    use super::*;
+    use crate::commit::kzg::Powers;
     use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine, G2Affine};
-    use ark_ec::pairing::Pairing;
     use ark_ec::{AffineRepr, CurveGroup};
+    use ark_poly::domain::general::GeneralEvaluationDomain;
+    use ark_poly::evaluations::univariate::Evaluations;
     use ark_poly::univariate::DensePolynomial;
-    use ark_poly::{DenseUVPolynomial, Polynomial};
+    use ark_poly::{DenseUVPolynomial, Polynomial, EvaluationDomain};
     use ark_std::{test_rng, One, UniformRand};
 
     type Scalar = <BlsCurve as Pairing>::ScalarField;
@@ -46,10 +49,21 @@ mod test {
     fn flow() {
         let rng = &mut test_rng();
 
-        // TODO from interpolation of data
-        let f_poly = UniPoly::rand(10, rng);
+        // f(x) = 3 + 2x + x^2
+        // f(0) = 3
+        // f(1) = 6
+        // f(2) = 18 
+        // f(3) = 
+        let data = vec![Scalar::from(3), Scalar::from(6), Scalar::from(18)];
+        let domain = GeneralEvaluationDomain::<Scalar>::new(3).unwrap();
+        let evaluations = Evaluations::from_vec_and_domain(data, domain);
+
+        let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let index = Scalar::from(7u32);
         let eval = f_poly.evaluate(&index);
+
+        assert_eq!(f_poly.coeffs[0], Scalar::from(3));
+        assert_eq!(eval, Scalar::from(66));
 
         // secret-gen
         let tau = Scalar::rand(rng);
@@ -60,7 +74,7 @@ mod test {
         let h_secret_star = (G2Affine::generator() * secret * secret_star).into_affine();
 
         // elgamal encryption
-        let cipher = ExponentialElGamal::<<BlsCurve as Pairing>::G1>::encrypt_with_randomness(
+        let cipher = ExponentialElgamal::<<BlsCurve as Pairing>::G1>::encrypt_with_randomness(
             &eval,
             &encryption_pk,
             elgamal_r,
@@ -70,8 +84,7 @@ mod test {
         let d_poly = UniPoly::from_coefficients_slice(&[-index, Scalar::one()]);
         let s_s_star = UniPoly::from_coefficients_slice(&[secret * secret_star]);
         // (f(x) - eval) / (x - eval) + ss*
-        let t_poly =
-            &(&f_poly + &UniPoly::from_coefficients_slice(&[-eval])) / &d_poly + s_s_star;
+        let t_poly = &(&f_poly + &UniPoly::from_coefficients_slice(&[-eval])) / &d_poly + s_s_star;
         // - r / s_star - (x - eval)
         let r_poly = &UniPoly::from_coefficients_slice(&[-elgamal_r / secret_star]) - &d_poly;
 
