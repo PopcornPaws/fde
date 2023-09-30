@@ -1,7 +1,7 @@
 use super::EncryptionEngine;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::marker::PhantomData;
-use ark_std::ops::Add;
+use ark_std::ops::{Add, Mul};
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
@@ -30,6 +30,16 @@ impl<C: CurveGroup> Add for Cipher<C> {
     }
 }
 
+impl<C: CurveGroup> Mul<C::ScalarField> for Cipher<C> {
+    type Output = Self;
+    fn mul(self, rhs: C::ScalarField) -> Self::Output {
+        Self([
+            (self.c0() * rhs).into_affine(),
+            (self.c1() * rhs).into_affine(),
+        ])
+    }
+}
+
 impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
     type EncryptionKey = C::Affine;
     type DecryptionKey = C::ScalarField;
@@ -42,7 +52,18 @@ impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
         rng: &mut R,
     ) -> Self::Cipher {
         let random_nonce = C::ScalarField::rand(rng);
-        Self::encrypt_with_randomness(data, key, random_nonce)
+        Self::encrypt_with_randomness(data, key, &random_nonce)
+    }
+
+    fn encrypt_with_randomness(
+        data: &Self::PlainText,
+        key: &Self::EncryptionKey,
+        randomness: &Self::PlainText,
+    ) -> Self::Cipher {
+        let shared_secret = *key * randomness;
+        let c1 = <C::Affine as AffineRepr>::generator() * randomness;
+        let c2 = <C::Affine as AffineRepr>::generator() * data + shared_secret;
+        Cipher([c1.into_affine(), c2.into_affine()])
     }
 
     fn decrypt(cipher: Self::Cipher, key: &Self::DecryptionKey) -> Self::PlainText {
@@ -52,17 +73,6 @@ impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
 }
 
 impl<C: CurveGroup> ExponentialElgamal<C> {
-    pub fn encrypt_with_randomness(
-        data: &C::ScalarField,
-        key: &C::Affine,
-        randomness: C::ScalarField,
-    ) -> Cipher<C> {
-        let shared_secret = *key * randomness;
-        let c1 = <C::Affine as AffineRepr>::generator() * randomness;
-        let c2 = <C::Affine as AffineRepr>::generator() * data + shared_secret;
-        Cipher([c1.into_affine(), c2.into_affine()])
-    }
-
     pub fn decrypt_exp(cipher: Cipher<C>, key: &C::ScalarField) -> C::Affine {
         let shared_secret = (cipher.c0() * key).into_affine();
         // AffineRepr has to be converted into a Group element in order to perform subtraction but
@@ -119,7 +129,7 @@ mod test {
 
     #[test]
     fn elgamal_homomorphism() {
-        let a = Fr::from(1u8);
+        let a = Fr::from(16u8);
         let b = Fr::from(10u8);
         let c = Fr::from(100u8);
         let ra = Fr::from(2u8);
@@ -129,13 +139,24 @@ mod test {
         let decryption_key = Fr::from(1234567);
         let encryption_key = (BlsG1::generator() * decryption_key).into_affine();
 
-        let ea = Engine::encrypt_with_randomness(&a, &encryption_key, ra);
-        let eb = Engine::encrypt_with_randomness(&b, &encryption_key, rb);
-        let ec = Engine::encrypt_with_randomness(&c, &encryption_key, rc);
+        let ea = Engine::encrypt_with_randomness(&a, &encryption_key, &ra);
+        let eb = Engine::encrypt_with_randomness(&b, &encryption_key, &rb);
+        let ec = Engine::encrypt_with_randomness(&c, &encryption_key, &rc);
 
         let sum = a + b + c;
         let rsum = ra + rb + rc;
         let esum = ea + eb + ec;
+
+        assert_eq!(esum.c0(), BlsG1::generator() * rsum);
+        assert_eq!(esum.c1(), BlsG1::generator() * sum + encryption_key * rsum);
+
+        let ma = Fr::from(3u8);
+        let mb = Fr::from(4u8);
+        let mc = Fr::from(5u8);
+
+        let sum = ma * a + mb * b + mc * c;
+        let rsum = ma * ra + mb * rb + mc * rc;
+        let esum = ea * ma + eb * mb + ec * mc;
 
         assert_eq!(esum.c0(), BlsG1::generator() * rsum);
         assert_eq!(esum.c1(), BlsG1::generator() * sum + encryption_key * rsum);

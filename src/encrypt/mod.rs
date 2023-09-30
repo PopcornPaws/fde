@@ -16,5 +16,10 @@ pub trait EncryptionEngine {
         key: &Self::EncryptionKey,
         rng: &mut R,
     ) -> Self::Cipher;
+    fn encrypt_with_randomness(
+        data: &Self::PlainText,
+        key: &Self::EncryptionKey,
+        randomness: &Self::PlainText,
+    ) -> Self::Cipher;
     fn decrypt(cipher: Self::Cipher, key: &Self::DecryptionKey) -> Self::PlainText;
 }

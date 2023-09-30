@@ -3,6 +3,7 @@ use crate::encrypt::EncryptionEngine;
 use ark_ec::pairing::Pairing;
 use ark_ff::biginteger::BigInteger;
 use ark_ff::fields::PrimeField;
+use ark_std::rand::Rng;
 // proof for a single scalar
 // if |F| = 2^256, then short ciphers should
 // have length 8, because we split a single scalar
@@ -44,11 +45,38 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
             .iter()
             .enumerate()
             .fold(S::zero(), |acc, (i, split)| {
-                let mut split_bigint = split.into_bigint();
-                split_bigint.muln((M * i) as u32);
-                let shift = S::from_bigint(split_bigint).unwrap();
+                let shift = shift_scalar(split, (M * i) as u32);
                 acc + shift
             })
+    }
+
+    pub fn encrypt<E, R>(
+        self,
+        encryption_key: &E::EncryptionKey,
+        rng: &mut R,
+    ) -> ([E::Cipher; N], S)
+    where
+        E: EncryptionEngine<PlainText = S>,
+        E::Cipher: ark_std::fmt::Debug,
+        R: Rng
+    {
+        let rands: Vec<S> = (0..N)
+            .into_iter()
+            .map(|i| {
+                let r = S::rand(rng);
+                shift_scalar(&r, (M * i) as u32)
+            })
+            .collect();
+
+        let ciphers: Vec<E::Cipher> = self
+            .0
+            .iter()
+            .zip(&rands)
+            .map(|(s, r)| E::encrypt_with_randomness(s, encryption_key, r))
+            .collect();
+
+        let rand_sum = rands.into_iter().sum();
+        (ciphers.try_into().unwrap(), rand_sum)
     }
 
     pub fn splits(&self) -> &[S; N] {
@@ -56,7 +84,13 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
     }
 }
 
-impl<const N: usize, const M:usize, S: PrimeField> From<S> for SplitScalar<N, M, S> {
+fn shift_scalar<S: PrimeField>(scalar: &S, by: u32) -> S {
+    let mut shifted = scalar.into_bigint();
+    shifted.muln(by);
+    S::from_bigint(shifted).unwrap()
+}
+
+impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M, S> {
     fn from(scalar: S) -> Self {
         let scalar_le_bytes = scalar.into_bigint().to_bits_le();
         let mut output = [S::zero(); N];
@@ -79,10 +113,10 @@ mod test {
     use ark_poly::evaluations::univariate::Evaluations;
     use ark_poly::univariate::DensePolynomial;
     use ark_poly::{DenseUVPolynomial, EvaluationDomain, Polynomial};
-    use ark_std::{test_rng, One, UniformRand};
+    use ark_std::{test_rng, One, UniformRand, Zero};
 
     type Scalar = <BlsCurve as Pairing>::ScalarField;
-    type SplitScalar = SplitScalar<Scalar::MODULUS_BIT_SIZE, 32, Scalar>;
+    type SpScalar = SplitScalar<{ Scalar::MODULUS_BIT_SIZE as usize }, 32, Scalar>;
     type UniPoly = DensePolynomial<Scalar>;
 
     #[test]
@@ -114,7 +148,7 @@ mod test {
         let cipher = ExponentialElgamal::<<BlsCurve as Pairing>::G1>::encrypt_with_randomness(
             &eval,
             &encryption_pk,
-            elgamal_r,
+            &elgamal_r,
         );
         // compute polynomials
         // (x - eval) polynomial
@@ -142,6 +176,16 @@ mod test {
     #[test]
     fn scalar_splitting() {
         let scalar = Scalar::zero();
-        let split_scalar = 
+        let split_scalar = SpScalar::from(scalar);
+        let reconstructed_scalar = split_scalar.reconstruct();
+        assert_eq!(scalar, reconstructed_scalar);
+
+        let rng = &mut test_rng();
+        for _ in 0..10 {
+            let scalar = Scalar::rand(rng);
+            let split_scalar = SpScalar::from(scalar);
+            let reconstructed_scalar = split_scalar.reconstruct();
+            assert_eq!(scalar, reconstructed_scalar);
+        }
     }
 }
