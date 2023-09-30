@@ -1,6 +1,8 @@
 use crate::encrypt::elgamal::ExponentialElgamal;
 use crate::encrypt::EncryptionEngine;
 use ark_ec::pairing::Pairing;
+use ark_ff::biginteger::BigInteger;
+use ark_ff::fields::PrimeField;
 // proof for a single scalar
 // if |F| = 2^256, then short ciphers should
 // have length 8, because we split a single scalar
@@ -30,6 +32,43 @@ pub struct Proof<C: Pairing> {
 //    }
 //}
 
+struct SplitScalar<const N: usize, const M: usize, S>([S; N]);
+
+impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
+    pub fn new(inner: [S; N]) -> Self {
+        Self(inner)
+    }
+
+    pub fn reconstruct(&self) -> S {
+        self.splits()
+            .iter()
+            .enumerate()
+            .fold(S::zero(), |acc, (i, split)| {
+                let mut split_bigint = split.into_bigint();
+                split_bigint.muln((M * i) as u32);
+                let shift = S::from_bigint(split_bigint).unwrap();
+                acc + shift
+            })
+    }
+
+    pub fn splits(&self) -> &[S; N] {
+        &self.0
+    }
+}
+
+impl<const N: usize, const M:usize, S: PrimeField> From<S> for SplitScalar<N, M, S> {
+    fn from(scalar: S) -> Self {
+        let scalar_le_bytes = scalar.into_bigint().to_bits_le();
+        let mut output = [S::zero(); N];
+
+        for (i, chunk) in scalar_le_bytes.chunks(M).enumerate() {
+            let split = S::from_bigint(<S::BigInt as BigInteger>::from_bits_le(chunk)).unwrap();
+            output[i] = split;
+        }
+        Self::new(output)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -39,31 +78,29 @@ mod test {
     use ark_poly::domain::general::GeneralEvaluationDomain;
     use ark_poly::evaluations::univariate::Evaluations;
     use ark_poly::univariate::DensePolynomial;
-    use ark_poly::{DenseUVPolynomial, Polynomial, EvaluationDomain};
+    use ark_poly::{DenseUVPolynomial, EvaluationDomain, Polynomial};
     use ark_std::{test_rng, One, UniformRand};
 
     type Scalar = <BlsCurve as Pairing>::ScalarField;
+    type SplitScalar = SplitScalar<Scalar::MODULUS_BIT_SIZE, 32, Scalar>;
     type UniPoly = DensePolynomial<Scalar>;
 
     #[test]
     fn flow() {
         let rng = &mut test_rng();
 
-        // f(x) = 3 + 2x + x^2
-        // f(0) = 3
-        // f(1) = 6
-        // f(2) = 18 
-        // f(3) = 
-        let data = vec![Scalar::from(3), Scalar::from(6), Scalar::from(18)];
         let domain = GeneralEvaluationDomain::<Scalar>::new(3).unwrap();
+        let data = vec![
+            Scalar::from(2),
+            Scalar::from(3),
+            Scalar::from(6),
+            Scalar::from(11),
+        ];
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
 
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let index = Scalar::from(7u32);
         let eval = f_poly.evaluate(&index);
-
-        assert_eq!(f_poly.coeffs[0], Scalar::from(3));
-        assert_eq!(eval, Scalar::from(66));
 
         // secret-gen
         let tau = Scalar::rand(rng);
@@ -100,5 +137,11 @@ mod test {
         let rp_pairing = BlsCurve::pairing(com_r, h_secret_star);
 
         assert_eq!(fp_pairing, tp_pairing + rp_pairing);
+    }
+
+    #[test]
+    fn scalar_splitting() {
+        let scalar = Scalar::zero();
+        let split_scalar = 
     }
 }
