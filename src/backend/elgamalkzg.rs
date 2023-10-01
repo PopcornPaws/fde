@@ -58,15 +58,9 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
     where
         E: EncryptionEngine<PlainText = S>,
         E::Cipher: ark_std::fmt::Debug,
-        R: Rng
+        R: Rng,
     {
-        let rands: Vec<S> = (0..N)
-            .into_iter()
-            .map(|i| {
-                let r = S::rand(rng);
-                shift_scalar(&r, (M * i) as u32)
-            })
-            .collect();
+        let rands: Vec<S> = (0..N).into_iter().map(|_| S::rand(rng)).collect();
 
         let ciphers: Vec<E::Cipher> = self
             .0
@@ -75,8 +69,11 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
             .map(|(s, r)| E::encrypt_with_randomness(s, encryption_key, r))
             .collect();
 
-        let rand_sum = rands.into_iter().sum();
-        (ciphers.try_into().unwrap(), rand_sum)
+        let shifted_rand_sum = rands
+            .into_iter()
+            .enumerate()
+            .fold(S::zero(), |acc, (i, r)| acc + shift_scalar(&r, (M * i) as u32));
+        (ciphers.try_into().unwrap(), shifted_rand_sum)
     }
 
     pub fn splits(&self) -> &[S; N] {
@@ -85,9 +82,7 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
 }
 
 fn shift_scalar<S: PrimeField>(scalar: &S, by: u32) -> S {
-    let mut shifted = scalar.into_bigint();
-    shifted.muln(by);
-    S::from_bigint(shifted).unwrap()
+    *scalar * S::from(by)
 }
 
 impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M, S> {
@@ -107,6 +102,7 @@ impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M
 mod test {
     use super::*;
     use crate::commit::kzg::Powers;
+    use crate::encrypt::elgamal::Cipher;
     use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine, G2Affine};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_poly::domain::general::GeneralEvaluationDomain;
@@ -115,9 +111,12 @@ mod test {
     use ark_poly::{DenseUVPolynomial, EvaluationDomain, Polynomial};
     use ark_std::{test_rng, One, UniformRand, Zero};
 
+    const BITS: usize = 32;
+
     type Scalar = <BlsCurve as Pairing>::ScalarField;
-    type SpScalar = SplitScalar<{ Scalar::MODULUS_BIT_SIZE as usize }, 32, Scalar>;
+    type SpScalar = SplitScalar<{ Scalar::MODULUS_BIT_SIZE as usize }, BITS, Scalar>;
     type UniPoly = DensePolynomial<Scalar>;
+    type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 
     #[test]
     fn flow() {
@@ -145,7 +144,7 @@ mod test {
         let h_secret_star = (G2Affine::generator() * secret * secret_star).into_affine();
 
         // elgamal encryption
-        let cipher = ExponentialElgamal::<<BlsCurve as Pairing>::G1>::encrypt_with_randomness(
+        let cipher = Elgamal::encrypt_with_randomness(
             &eval,
             &encryption_pk,
             &elgamal_r,
@@ -181,11 +180,40 @@ mod test {
         assert_eq!(scalar, reconstructed_scalar);
 
         let rng = &mut test_rng();
+        let max_scalar = Scalar::from(u32::MAX);
         for _ in 0..10 {
             let scalar = Scalar::rand(rng);
             let split_scalar = SpScalar::from(scalar);
+            for split in split_scalar.splits() {
+                assert!(split <= &max_scalar);
+            }
             let reconstructed_scalar = split_scalar.reconstruct();
             assert_eq!(scalar, reconstructed_scalar);
         }
+    }
+
+    #[test]
+    fn split_encryption() {
+        let rng = &mut test_rng();
+        let scalar = Scalar::rand(rng);
+        let split_scalar = SpScalar::from(scalar);
+        let secret = Scalar::rand(rng);
+        let encryption_key = (G1Affine::generator() * secret).into_affine();
+
+        let (ciphers, randomness) = split_scalar.encrypt::<Elgamal, _>(&encryption_key, rng);
+
+        let cipher = Elgamal::encrypt_with_randomness(
+            &scalar,
+            &encryption_key,
+            &randomness,
+        );
+
+        let ciphers_sum = ciphers
+            .into_iter()
+            .enumerate()
+            .fold(Cipher::zero(), |acc, (i, c)| {
+                acc + c * shift_scalar(&Scalar::one(), (BITS * i) as u32)
+            });
+        assert_eq!(ciphers_sum, cipher);
     }
 }

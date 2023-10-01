@@ -7,8 +7,17 @@ use ark_std::{One, UniformRand, Zero};
 
 pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
+
+impl<C: CurveGroup> Zero for Cipher<C> {
+    fn zero() -> Self {
+        Self([C::Affine::zero(); 2])
+    }
+    fn is_zero(&self) -> bool {
+        self.0[0].is_zero() && self.0[1].is_zero()
+    }
+}
 
 impl<C: CurveGroup> Cipher<C> {
     pub fn c0(&self) -> C::Affine {
