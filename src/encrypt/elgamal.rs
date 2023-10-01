@@ -5,6 +5,7 @@ use ark_std::ops::{Add, Mul};
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
+pub const MAX_BITS: usize = 32;
 pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

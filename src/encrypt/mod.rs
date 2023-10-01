@@ -1,4 +1,5 @@
 pub mod elgamal;
+pub mod split_scalar;
 
 use ark_std::rand::Rng;
 
