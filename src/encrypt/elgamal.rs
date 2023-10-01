@@ -15,7 +15,7 @@ impl<C: CurveGroup> Zero for Cipher<C> {
         Self([C::Affine::zero(); 2])
     }
     fn is_zero(&self) -> bool {
-        self.0[0].is_zero() && self.0[1].is_zero()
+        self.c0().is_zero() && self.c1().is_zero()
     }
 }
 

@@ -33,6 +33,7 @@ pub struct Proof<C: Pairing> {
 //    }
 //}
 
+#[derive(Clone, Copy, Debug)]
 struct SplitScalar<const N: usize, const M: usize, S>([S; N]);
 
 impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
@@ -61,7 +62,6 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
         R: Rng,
     {
         let rands: Vec<S> = (0..N).into_iter().map(|_| S::rand(rng)).collect();
-
         let ciphers: Vec<E::Cipher> = self
             .0
             .iter()
@@ -69,10 +69,9 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
             .map(|(s, r)| E::encrypt_with_randomness(s, encryption_key, r))
             .collect();
 
-        let shifted_rand_sum = rands
-            .into_iter()
-            .enumerate()
-            .fold(S::zero(), |acc, (i, r)| acc + shift_scalar(&r, (M * i) as u32));
+        let shifted_rand_sum = rands.iter().enumerate().fold(S::zero(), |acc, (i, r)| {
+            acc + shift_scalar(r, (M * i) as u32)
+        });
         (ciphers.try_into().unwrap(), shifted_rand_sum)
     }
 
@@ -82,7 +81,9 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
 }
 
 fn shift_scalar<S: PrimeField>(scalar: &S, by: u32) -> S {
-    *scalar * S::from(by)
+    let mut bigint = S::one().into_bigint();
+    bigint.muln(by);
+    *scalar * S::from_bigint(bigint).unwrap()
 }
 
 impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M, S> {
@@ -144,11 +145,7 @@ mod test {
         let h_secret_star = (G2Affine::generator() * secret * secret_star).into_affine();
 
         // elgamal encryption
-        let cipher = Elgamal::encrypt_with_randomness(
-            &eval,
-            &encryption_pk,
-            &elgamal_r,
-        );
+        let cipher = Elgamal::encrypt_with_randomness(&eval, &encryption_pk, &elgamal_r);
         // compute polynomials
         // (x - eval) polynomial
         let d_poly = UniPoly::from_coefficients_slice(&[-index, Scalar::one()]);
@@ -202,11 +199,7 @@ mod test {
 
         let (ciphers, randomness) = split_scalar.encrypt::<Elgamal, _>(&encryption_key, rng);
 
-        let cipher = Elgamal::encrypt_with_randomness(
-            &scalar,
-            &encryption_key,
-            &randomness,
-        );
+        let cipher = Elgamal::encrypt_with_randomness(&scalar, &encryption_key, &randomness);
 
         let ciphers_sum = ciphers
             .into_iter()
