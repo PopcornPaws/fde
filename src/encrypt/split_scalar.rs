@@ -69,15 +69,10 @@ impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::encrypt::elgamal::{Cipher, ExponentialElgamal, MAX_BITS};
-    use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine};
-    use ark_ec::pairing::Pairing;
+    use crate::common::bls::{Scalar, SpScalar};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, One, UniformRand, Zero};
 
-    type Scalar = <BlsCurve as Pairing>::ScalarField;
-    type SpScalar = SplitScalar<{ Scalar::MODULUS_BIT_SIZE as usize }, MAX_BITS, Scalar>;
-    type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 
     #[test]
     fn scalar_splitting() {

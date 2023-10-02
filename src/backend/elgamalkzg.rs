@@ -36,17 +36,13 @@ pub struct Proof<const N: usize, C: Pairing> {
 mod test {
     use super::*;
     use crate::commit::kzg::Powers;
-    use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine, G2Affine};
+    use crate::common::bls::*;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_poly::domain::general::GeneralEvaluationDomain;
     use ark_poly::evaluations::univariate::Evaluations;
     use ark_poly::univariate::DensePolynomial;
     use ark_poly::{DenseUVPolynomial, EvaluationDomain, Polynomial};
     use ark_std::{test_rng, One, UniformRand, Zero};
-
-    type Scalar = <BlsCurve as Pairing>::ScalarField;
-    type UniPoly = DensePolynomial<Scalar>;
-    type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 
     #[test]
     fn flow() {
