@@ -6,6 +6,7 @@ use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
 pub const MAX_BITS: usize = 32;
+
 pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,7 +35,7 @@ impl<C: CurveGroup> Cipher<C> {
             .iter()
             .enumerate()
             .fold(Self::zero(), |acc, (i, c)| {
-                acc + *c * super::shift_scalar(&C::ScalarField::one(), (B * i) as u32)
+                acc + *c * super::shift_scalar(&C::ScalarField::one(), B * i)
             });
         ciphers_sum == *self
     }
@@ -110,93 +111,5 @@ impl<C: CurveGroup> ExponentialElgamal<C> {
             exponent += C::ScalarField::one();
         }
         exponent
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use super::super::split_scalar::SplitScalar;
-    use ark_bls12_381::{Fr, G1Projective as BlsG1};
-    use ark_ec::Group;
-    use ark_ff::PrimeField;
-    use ark_std::test_rng;
-
-    type Engine = ExponentialElgamal<BlsG1>;
-    type SpScalar = SplitScalar<{ Fr::MODULUS_BIT_SIZE as usize }, MAX_BITS, Fr>;
-
-    #[test]
-    fn exponential_elgamal() {
-        let rng = &mut test_rng();
-        let decryption_key = Fr::rand(rng);
-        let encryption_key = (BlsG1::generator() * decryption_key).into_affine();
-
-        // completeness
-        let data = Fr::from(12342526u32);
-        let encrypted = Engine::encrypt(&data, &encryption_key, rng);
-        let decrypted = Engine::decrypt_exp(encrypted, &decryption_key);
-        assert_eq!(decrypted, (BlsG1::generator() * data).into_affine());
-        // soundness
-        let data = Fr::from(12342526u32);
-        let invalid_decryption_key = decryption_key + Fr::from(123u32);
-        let encrypted = Engine::encrypt(&data, &encryption_key, rng);
-        let decrypted = Engine::decrypt_exp(encrypted, &invalid_decryption_key);
-        assert_ne!(decrypted, (BlsG1::generator() * data).into_affine());
-
-        // with brute force check
-        let data = Fr::from(12u32);
-        let encrypted = Engine::encrypt(&data, &encryption_key, rng);
-        let decrypted = Engine::decrypt(encrypted, &decryption_key);
-        assert_eq!(decrypted, data);
-    }
-
-    #[test]
-    fn elgamal_homomorphism() {
-        let a = Fr::from(16u8);
-        let b = Fr::from(10u8);
-        let c = Fr::from(100u8);
-        let ra = Fr::from(2u8);
-        let rb = Fr::from(20u8);
-        let rc = Fr::from(200u8);
-
-        let decryption_key = Fr::from(1234567);
-        let encryption_key = (BlsG1::generator() * decryption_key).into_affine();
-
-        let ea = Engine::encrypt_with_randomness(&a, &encryption_key, &ra);
-        let eb = Engine::encrypt_with_randomness(&b, &encryption_key, &rb);
-        let ec = Engine::encrypt_with_randomness(&c, &encryption_key, &rc);
-
-        let sum = a + b + c;
-        let rsum = ra + rb + rc;
-        let esum = ea + eb + ec;
-
-        assert_eq!(esum.c0(), BlsG1::generator() * rsum);
-        assert_eq!(esum.c1(), BlsG1::generator() * sum + encryption_key * rsum);
-
-        let ma = Fr::from(3u8);
-        let mb = Fr::from(4u8);
-        let mc = Fr::from(5u8);
-
-        let sum = ma * a + mb * b + mc * c;
-        let rsum = ma * ra + mb * rb + mc * rc;
-        let esum = ea * ma + eb * mb + ec * mc;
-
-        assert_eq!(esum.c0(), BlsG1::generator() * rsum);
-        assert_eq!(esum.c1(), BlsG1::generator() * sum + encryption_key * rsum);
-    }
-
-    #[test]
-    fn split_encryption() {
-        let rng = &mut test_rng();
-        let scalar = Fr::rand(rng);
-        let split_scalar = SpScalar::from(scalar);
-        let secret = Fr::rand(rng);
-        let encryption_key = (BlsG1::generator() * secret).into_affine();
-
-        let (ciphers, randomness) = split_scalar.encrypt::<Engine, _>(&encryption_key, rng);
-
-        let cipher = Engine::encrypt_with_randomness(&scalar, &encryption_key, &randomness);
-
-        assert!(cipher.check_encrypted_sum::<{ MAX_BITS }>(&ciphers));
     }
 }

@@ -27,9 +27,9 @@ pub trait EncryptionEngine {
     fn decrypt(cipher: Self::Cipher, key: &Self::DecryptionKey) -> Self::PlainText;
 }
 
-fn shift_scalar<S: PrimeField>(scalar: &S, by: u32) -> S {
+fn shift_scalar<S: PrimeField>(scalar: &S, by: usize) -> S {
     let mut bigint = S::one().into_bigint();
-    bigint.muln(by);
+    bigint.muln(by as u32);
     *scalar * S::from_bigint(bigint).unwrap()
 }
 
@@ -54,6 +54,6 @@ mod test {
         // according to the docs, overflow is
         // ignored
         let scalar = Fr::one();
-        assert_eq!(shift_scalar(&scalar, u32::MAX), Fr::zero());
+        assert_eq!(shift_scalar(&scalar, u32::MAX as usize), Fr::zero());
     }
 }
