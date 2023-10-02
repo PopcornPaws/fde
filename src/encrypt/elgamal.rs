@@ -28,6 +28,16 @@ impl<C: CurveGroup> Cipher<C> {
     pub fn c1(&self) -> C::Affine {
         self.0[1]
     }
+
+    pub fn check_encrypted_sum<const B: usize>(&self, ciphers: &[Self]) -> bool {
+        let ciphers_sum = ciphers
+            .iter()
+            .enumerate()
+            .fold(Self::zero(), |acc, (i, c)| {
+                acc + *c * super::shift_scalar(&C::ScalarField::one(), (B * i) as u32)
+            });
+        ciphers_sum == *self
+    }
 }
 
 impl<C: CurveGroup> Add for Cipher<C> {
@@ -106,11 +116,14 @@ impl<C: CurveGroup> ExponentialElgamal<C> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ark_ec::Group;
-    use ark_std::test_rng;
+    use super::super::split_scalar::SplitScalar;
     use ark_bls12_381::{Fr, G1Projective as BlsG1};
+    use ark_ec::Group;
+    use ark_ff::PrimeField;
+    use ark_std::test_rng;
 
     type Engine = ExponentialElgamal<BlsG1>;
+    type SpScalar = SplitScalar<{ Fr::MODULUS_BIT_SIZE as usize }, MAX_BITS, Fr>;
 
     #[test]
     fn exponential_elgamal() {
@@ -170,5 +183,20 @@ mod test {
 
         assert_eq!(esum.c0(), BlsG1::generator() * rsum);
         assert_eq!(esum.c1(), BlsG1::generator() * sum + encryption_key * rsum);
+    }
+
+    #[test]
+    fn split_encryption() {
+        let rng = &mut test_rng();
+        let scalar = Fr::rand(rng);
+        let split_scalar = SpScalar::from(scalar);
+        let secret = Fr::rand(rng);
+        let encryption_key = (BlsG1::generator() * secret).into_affine();
+
+        let (ciphers, randomness) = split_scalar.encrypt::<Engine, _>(&encryption_key, rng);
+
+        let cipher = Engine::encrypt_with_randomness(&scalar, &encryption_key, &randomness);
+
+        assert!(cipher.check_encrypted_sum::<{ MAX_BITS }>(&ciphers));
     }
 }

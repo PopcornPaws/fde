@@ -16,7 +16,7 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
             .iter()
             .enumerate()
             .fold(S::zero(), |acc, (i, split)| {
-                let shift = shift_scalar(split, (M * i) as u32);
+                let shift = super::shift_scalar(split, (M * i) as u32);
                 acc + shift
             })
     }
@@ -40,7 +40,7 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
             .collect();
 
         let shifted_rand_sum = rands.iter().enumerate().fold(S::zero(), |acc, (i, r)| {
-            acc + shift_scalar(r, (M * i) as u32)
+            acc + super::shift_scalar(r, (M * i) as u32)
         });
 
         // NOTE unwrap is fine because ciphers.len() is always N
@@ -50,6 +50,7 @@ impl<const N: usize, const M: usize, S: PrimeField> SplitScalar<N, M, S> {
     pub fn splits(&self) -> &[S; N] {
         &self.0
     }
+
 }
 
 impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M, S> {
@@ -65,26 +66,6 @@ impl<const N: usize, const M: usize, S: PrimeField> From<S> for SplitScalar<N, M
     }
 }
 
-fn shift_scalar<S: PrimeField>(scalar: &S, by: u32) -> S {
-    let mut bigint = S::one().into_bigint();
-    bigint.muln(by);
-    *scalar * S::from_bigint(bigint).unwrap()
-}
-
-// TODO move this to elgamal cipher
-//pub fn check_encrypted_sum<const B: usize, E: EncryptionEngine>(
-//    cipher: &E::Cipher,
-//    ciphers: &[E::Cipher],
-//) -> bool {
-//    let ciphers_sum = ciphers
-//        .iter()
-//        .enumerate()
-//        .fold(Cipher::zero(), |acc, (i, c)| {
-//            acc + c * shift_scalar(&Scalar::one(), (B * i) as u32)
-//        });
-//    ciphers_sum == cipher
-//}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -97,24 +78,6 @@ mod test {
     type Scalar = <BlsCurve as Pairing>::ScalarField;
     type SpScalar = SplitScalar<{ Scalar::MODULUS_BIT_SIZE as usize }, MAX_BITS, Scalar>;
     type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
-
-    #[test]
-    fn scalar_shifting() {
-        let scalar = Scalar::zero();
-        assert_eq!(shift_scalar(&scalar, 32), Scalar::zero());
-
-        let scalar = Scalar::one();
-        assert_eq!(
-            shift_scalar(&scalar, 32),
-            Scalar::from(u64::from(u32::MAX) + 1u64)
-        );
-
-        // shifting with overflow
-        // according to the docs, overflow is
-        // ignored
-        let scalar = Scalar::one();
-        assert_eq!(shift_scalar(&scalar, u32::MAX), Scalar::zero());
-    }
 
     #[test]
     fn scalar_splitting() {
@@ -134,20 +97,5 @@ mod test {
             let reconstructed_scalar = split_scalar.reconstruct();
             assert_eq!(scalar, reconstructed_scalar);
         }
-    }
-
-    #[test]
-    fn split_encryption() {
-        let rng = &mut test_rng();
-        let scalar = Scalar::rand(rng);
-        let split_scalar = SpScalar::from(scalar);
-        let secret = Scalar::rand(rng);
-        let encryption_key = (G1Affine::generator() * secret).into_affine();
-
-        let (ciphers, randomness) = split_scalar.encrypt::<Elgamal, _>(&encryption_key, rng);
-
-        let cipher = Elgamal::encrypt_with_randomness(&scalar, &encryption_key, &randomness);
-
-        assert!(check_encrypted_sum(&cipher, &ciphers));
     }
 }
