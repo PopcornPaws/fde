@@ -1,5 +1,5 @@
-use super::EncryptionEngine;
 use super::elgamal::MAX_BITS;
+use super::EncryptionEngine;
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_std::rand::Rng;
@@ -51,7 +51,6 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
     pub fn splits(&self) -> &[S; N] {
         &self.0
     }
-
 }
 
 impl<const N: usize, S: PrimeField> From<S> for SplitScalar<N, S> {

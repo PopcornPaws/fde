@@ -1,4 +1,4 @@
-//pub mod elgamalkzg;
+pub mod elgamalkzg;
 
 //use crate::encrypt::elgamal::ExponentialElGamal;
 //use crate::encrypt::EncryptionEngine;
@@ -19,8 +19,6 @@ pub struct ElGamalWithKzg<C, P> {
     _polycommit: PhantomData<P>,
 }
 */
-
-
 
 /*
 impl<C: Pairing, P: DenseUVPolynomial<C::ScalarField>> Prover for ElGamalWithKzg<C, P>

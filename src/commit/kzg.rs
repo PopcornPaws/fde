@@ -1,7 +1,7 @@
 // We need to commit to G2 as well, which arkworks' kzg10 implementation doesn't allow
-use ark_ff::One;
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::One;
 use ark_poly_commit::DenseUVPolynomial;
 
 pub struct Powers<C: Pairing> {
@@ -63,7 +63,8 @@ mod test {
     fn commitment() {
         let tau = Scalar::from(2);
         // 3 - 2x + x^2
-        let poly = UniPoly::from_coefficients_slice(&[Scalar::from(3), -Scalar::from(2), Scalar::one()]);
+        let poly =
+            UniPoly::from_coefficients_slice(&[Scalar::from(3), -Scalar::from(2), Scalar::one()]);
         let poly_tau = poly.evaluate(&tau);
         assert_eq!(poly_tau, Scalar::from(3));
         // kzg

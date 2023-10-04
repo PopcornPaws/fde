@@ -1,8 +1,9 @@
-use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine, G2Affine};
+use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine};
 use ark_ec::pairing::Pairing;
 use ark_ff::fields::PrimeField;
 use ark_poly::univariate::DensePolynomial;
-use ark_std::{test_rng, UniformRand, One, Zero};
+use ark_std::{test_rng, UniformRand, Zero};
+use fdx::backend::elgamalkzg::Proof as ElgamalKzgProof;
 use fdx::encrypt::elgamal::{ExponentialElgamal, MAX_BITS};
 use fdx::encrypt::split_scalar::SplitScalar;
 
@@ -12,6 +13,7 @@ type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type SpScalar = SplitScalar<{ N }, Scalar>;
 type UniPoly = DensePolynomial<Scalar>;
+type Proof = ElgamalKzgProof<{ N }, BlsCurve, UniPoly>;
 
 mod elgamal;
 mod elgamalkzg;

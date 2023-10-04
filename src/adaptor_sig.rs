@@ -140,8 +140,8 @@ fn hash_challenge<C: CurveGroup, D: Digest>(
 mod test {
     use super::*;
     use ark_ec::Group;
-    use ark_std::test_rng;
     use ark_secp256k1::Projective as Secp256k1;
+    use ark_std::test_rng;
     use sha3::Keccak256;
 
     type Scheme = Schnorr<Secp256k1, Keccak256>;
