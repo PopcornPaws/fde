@@ -17,4 +17,10 @@ digest = "0.10"
 ark-bls12-381 = "0.4"
 ark-poly = "0.4"
 ark-secp256k1 = "0.4"
+criterion = "0.5"
 sha3 = "0.10"
+
+[[bench]]
+name = "elgamalkzg-backend"
+path = "benches/elgamalkzg.rs"
+harness = false

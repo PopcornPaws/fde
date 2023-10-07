@@ -10,10 +10,8 @@ use ark_std::ops::{Add, Div, Sub};
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand};
 
-// proof for a single scalar
-// if |F| = 2^256, then short ciphers should
-// have length 8, because we split a single scalar
-// into eight u32
+// proof for a single scalar if |F| = 2^256, then short ciphers should have length 8, because we
+// split a single scalar into eight u32
 pub struct Proof<const N: usize, C: Pairing, P> {
     short_ciphers: [<ExponentialElgamal<C::G1> as EncryptionEngine>::Cipher; N],
     long_cipher: <ExponentialElgamal<C::G1> as EncryptionEngine>::Cipher,
