@@ -1,5 +1,7 @@
-use super::elgamal::MAX_BITS;
-use super::EncryptionEngine;
+use super::elgamal::{Cipher, MAX_BITS};
+use ark_crypto_primitives::encryption::elgamal::{ElGamal, Parameters, Randomness};
+use ark_crypto_primitives::encryption::AsymmetricEncryptionScheme;
+use ark_ec::CurveGroup;
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_std::rand::Rng;
@@ -22,22 +24,30 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
             })
     }
 
-    pub fn encrypt<E, R>(
+    pub fn encrypt<R: Rng, C: CurveGroup<ScalarField = S>>(
         self,
-        encryption_key: &E::EncryptionKey,
+        encryption_key: &<ElGamal<C> as AsymmetricEncryptionScheme>::PublicKey,
         rng: &mut R,
-    ) -> ([E::Cipher; N], S)
-    where
-        E: EncryptionEngine<PlainText = S>,
-        E::Cipher: ark_std::fmt::Debug,
-        R: Rng,
-    {
+    ) -> ([Cipher<C>; N], Randomness<C>) {
+        let parameters = Parameters {
+            generator: C::Affine::generator(),
+        };
         let rands: Vec<S> = (0..N).map(|_| S::rand(rng)).collect();
-        let ciphers: Vec<E::Cipher> = self
+        let ciphers: Vec<Cipher<C>> = self
             .0
             .iter()
             .zip(&rands)
-            .map(|(s, r)| E::encrypt_with_randomness(s, encryption_key, r))
+            .map(|(s, r)| {
+                let plaintext = (parameters.generator * s).into_affine();
+                let randomness = Randomness(r);
+                let ark_cipher = <ElGamal<C> as AsymmetricEncryptionScheme>::encrypt(
+                    &parameters,
+                    &encryption_key,
+                    &plaintext,
+                    &randomness,
+                );
+                Cipher::<C>::from(ark_cipher)
+            })
             .collect();
 
         let shifted_rand_sum = rands.iter().enumerate().fold(S::zero(), |acc, (i, r)| {
@@ -45,7 +55,7 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
         });
 
         // NOTE unwrap is fine because ciphers.len() is always N
-        (ciphers.try_into().unwrap(), shifted_rand_sum)
+        (ciphers.try_into().unwrap(), Randomness(shifted_rand_sum))
     }
 
     pub fn splits(&self) -> &[S; N] {

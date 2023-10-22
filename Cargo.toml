@@ -5,7 +5,7 @@ edition = "2021"
 
 
 [dependencies]
-ark-crypto-primitives = { version = "0.4", features = ["signature"] }
+ark-crypto-primitives = { version = "0.4", features = ["signature", "encryption"] }
 ark-ec = "0.4" 
 ark-ff = "0.4" 
 ark-poly-commit = "0.4"

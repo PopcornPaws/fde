@@ -7,19 +7,8 @@ use ark_std::{One, UniformRand, Zero};
 
 pub const MAX_BITS: usize = 32;
 
-pub struct ExponentialElgamal<C>(pub PhantomData<C>);
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
-
-impl<C: CurveGroup> Zero for Cipher<C> {
-    fn zero() -> Self {
-        Self([C::Affine::zero(); 2])
-    }
-    fn is_zero(&self) -> bool {
-        self.c0().is_zero() && self.c1().is_zero()
-    }
-}
 
 impl<C: CurveGroup> Cipher<C> {
     pub fn c0(&self) -> C::Affine {
@@ -38,6 +27,21 @@ impl<C: CurveGroup> Cipher<C> {
                 acc + *c * super::shift_scalar(&C::ScalarField::one(), B * i)
             });
         ciphers_sum == *self
+    }
+}
+
+impl<C: CurveGroup> From<(C::Affine, C::Affine)> for Cipher<C> {
+    fn from(c: (C::Affine, C::Affine)) -> Self {
+        Self([c.0, c.1])
+    }
+}
+
+impl<C: CurveGroup> Zero for Cipher<C> {
+    fn zero() -> Self {
+        Self([C::Affine::zero(); 2])
+    }
+    fn is_zero(&self) -> bool {
+        self.c0().is_zero() && self.c1().is_zero()
     }
 }
 
@@ -61,7 +65,10 @@ impl<C: CurveGroup> Mul<C::ScalarField> for Cipher<C> {
     }
 }
 
-impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
+//pub struct ExponentialElgamal<C>(pub PhantomData<C>);
+
+/*
+impl<C: CurveGroup> EncryptionEngine for ElGamal<C> {
     type EncryptionKey = C::Affine;
     type DecryptionKey = C::ScalarField;
     type Cipher = Cipher<C>;
@@ -113,3 +120,4 @@ impl<C: CurveGroup> ExponentialElgamal<C> {
         exponent
     }
 }
+*/

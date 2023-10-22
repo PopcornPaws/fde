@@ -1,7 +1,8 @@
 use crate::commit::kzg::Powers;
-use crate::encrypt::elgamal::{ExponentialElgamal, MAX_BITS};
+use crate::encrypt::elgamal::{Cipher, MAX_BITS};
 use crate::encrypt::split_scalar::SplitScalar;
-use crate::encrypt::EncryptionEngine;
+use ark_crypto_primitives::encryption::elgamal::{ElGamal, Parameters};
+use ark_crypto_primitives::encryption::AsymmetricEncryptionScheme;
 use ark_ec::pairing::Pairing;
 use ark_ec::{CurveGroup, Group};
 use ark_poly_commit::DenseUVPolynomial;
@@ -13,8 +14,8 @@ use ark_std::{One, UniformRand};
 // proof for a single scalar if |F| = 2^256, then short ciphers should have length 8, because we
 // split a single scalar into eight u32
 pub struct Proof<const N: usize, C: Pairing, P> {
-    short_ciphers: [<ExponentialElgamal<C::G1> as EncryptionEngine>::Cipher; N],
-    long_cipher: <ExponentialElgamal<C::G1> as EncryptionEngine>::Cipher,
+    short_ciphers: [Cipher<C::G1>; N],
+    long_cipher: Cipher<C::G1>,
     com_r_poly: C::G1Affine,
     com_t_poly: C::G1Affine,
     h_secret_star: C::G2Affine,
@@ -46,13 +47,15 @@ where
         let eval = f_poly.evaluate(&index);
         let split_eval = SplitScalar::<N, C::ScalarField>::from(eval);
         // encrypt split evaluation data
-        let (short_ciphers, elgamal_r) =
-            split_eval.encrypt::<ExponentialElgamal<C::G1>, R>(&encryption_pk, rng);
+        let (short_ciphers, elgamal_r) = split_eval.encrypt::<R, C::G1>(&encryption_pk, rng);
 
         // elgamal encryption
-        let long_cipher = <ExponentialElgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
-            &eval,
+        let long_cipher = <ElGamal<C::G1> as AsymmetricEncryptionScheme>::encrypt(
+            &Parameters {
+                generator: C::G1::generator().into(),
+            },
             &encryption_pk,
+            &(C::G1::generator() * eval).into_affine(),
             &elgamal_r,
         );
 
@@ -62,7 +65,7 @@ where
         // (f(x) - eval) / (x - eval) + ss*
         let t_poly = &(f_poly + &P::from_coefficients_slice(&[-eval])) / &d_poly + s_s_star;
         // - r / s_star - (x - eval)
-        let r_poly = &P::from_coefficients_slice(&[-elgamal_r / secret_star]) - &d_poly;
+        let r_poly = &P::from_coefficients_slice(&[-elgamal_r.0 / secret_star]) - &d_poly;
 
         // kzg commitments
         let com_r_poly = kzg.commit_g1(&r_poly);
