@@ -1,4 +1,5 @@
 pub mod elgamalkzg;
+pub mod elgamalkzg_multi;
 
 //use crate::encrypt::elgamal::ExponentialElGamal;
 //use crate::encrypt::EncryptionEngine;

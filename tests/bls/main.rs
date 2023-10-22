@@ -11,7 +11,7 @@ type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type SpScalar = SplitScalar<{ N }, Scalar>;
 type UniPoly = DensePolynomial<Scalar>;
-type ElgamalKzgProof = fdx::backend::elgamalkzg::Proof<{ N }, BlsCurve, UniPoly>;
+type ElgamalKzgProof = fdx::backend::elgamalkzg::Proof<BlsCurve, UniPoly>;
 type DleqProof = fdx::dleq::Proof<<BlsCurve as Pairing>::G1, sha3::Keccak256>;
 
 mod dleq;
