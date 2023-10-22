@@ -3,7 +3,6 @@ use ark_ec::pairing::Pairing;
 use ark_ff::fields::PrimeField;
 use ark_poly::univariate::DensePolynomial;
 use ark_std::{test_rng, UniformRand, Zero};
-use fdx::backend::elgamalkzg::Proof as ElgamalKzgProof;
 use fdx::encrypt::elgamal::{ExponentialElgamal, MAX_BITS};
 use fdx::encrypt::split_scalar::SplitScalar;
 
@@ -13,8 +12,10 @@ type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type SpScalar = SplitScalar<{ N }, Scalar>;
 type UniPoly = DensePolynomial<Scalar>;
-type Proof = ElgamalKzgProof<{ N }, BlsCurve, UniPoly>;
+type ElgamalKzgProof = fdx::backend::elgamalkzg::Proof<{ N }, BlsCurve, UniPoly>;
+type DleqProof = fdx::dleq::Proof<<BlsCurve as Pairing>::G1, sha3::Keccak256>;
 
+mod dleq;
 mod elgamal;
 mod elgamalkzg;
 mod split_scalar;

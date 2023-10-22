@@ -59,7 +59,8 @@ impl<const N: usize, S: PrimeField> From<S> for SplitScalar<N, S> {
         let mut output = [S::zero(); N];
 
         for (i, chunk) in scalar_le_bytes.chunks(MAX_BITS).enumerate() {
-            let split = S::from_bigint(<S::BigInt as BigInteger>::from_bits_le(chunk)).unwrap();
+            let split = S::from_bigint(<S::BigInt as BigInteger>::from_bits_le(chunk))
+                .expect("should not fail");
             output[i] = split;
         }
         Self::new(output)

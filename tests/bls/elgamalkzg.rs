@@ -27,7 +27,7 @@ fn flow() {
     let encryption_sk = Scalar::rand(rng);
     // index
     let index = Scalar::from(7u32);
-    let proof = Proof::new(&f_poly, index, &powers, &encryption_sk, rng);
+    let proof = ElgamalKzgProof::new(&f_poly, index, &powers, &encryption_sk, rng);
 
     assert!(proof.verify(&com_f_poly, index, &powers));
 }
