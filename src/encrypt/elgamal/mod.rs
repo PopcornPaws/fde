@@ -1,3 +1,9 @@
+mod split_scalar;
+mod utils;
+
+pub use split_scalar::SplitScalar;
+use utils::shift_scalar;
+
 use super::EncryptionEngine;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::marker::PhantomData;
@@ -35,7 +41,7 @@ impl<C: CurveGroup> Cipher<C> {
             .iter()
             .enumerate()
             .fold(Self::zero(), |acc, (i, c)| {
-                acc + *c * super::shift_scalar(&C::ScalarField::one(), B * i)
+                acc + *c * shift_scalar(&C::ScalarField::one(), B * i)
             });
         ciphers_sum == *self
     }

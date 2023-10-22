@@ -1,6 +1,5 @@
 use crate::commit::kzg::Powers;
-use crate::encrypt::elgamal::{ExponentialElgamal, MAX_BITS};
-use crate::encrypt::split_scalar::SplitScalar;
+use crate::encrypt::elgamal::{ExponentialElgamal, SplitScalar, MAX_BITS};
 use crate::encrypt::EncryptionEngine;
 use ark_ec::pairing::Pairing;
 use ark_ec::{CurveGroup, Group};

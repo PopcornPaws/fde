@@ -1,5 +1,6 @@
-use super::elgamal::MAX_BITS;
-use super::EncryptionEngine;
+use super::utils::shift_scalar;
+use super::MAX_BITS;
+use crate::encrypt::EncryptionEngine;
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_std::rand::Rng;
@@ -17,7 +18,7 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
             .iter()
             .enumerate()
             .fold(S::zero(), |acc, (i, split)| {
-                let shift = super::shift_scalar(split, MAX_BITS * i);
+                let shift = shift_scalar(split, MAX_BITS * i);
                 acc + shift
             })
     }
@@ -40,9 +41,10 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
             .map(|(s, r)| E::encrypt_with_randomness(s, encryption_key, r))
             .collect();
 
-        let shifted_rand_sum = rands.iter().enumerate().fold(S::zero(), |acc, (i, r)| {
-            acc + super::shift_scalar(r, MAX_BITS * i)
-        });
+        let shifted_rand_sum = rands
+            .iter()
+            .enumerate()
+            .fold(S::zero(), |acc, (i, r)| acc + shift_scalar(r, MAX_BITS * i));
 
         // NOTE unwrap is fine because ciphers.len() is always N
         (ciphers.try_into().unwrap(), shifted_rand_sum)

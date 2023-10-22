@@ -3,8 +3,7 @@ use ark_ec::pairing::Pairing;
 use ark_ff::fields::PrimeField;
 use ark_poly::univariate::DensePolynomial;
 use ark_std::{test_rng, UniformRand, Zero};
-use fdx::encrypt::elgamal::{ExponentialElgamal, MAX_BITS};
-use fdx::encrypt::split_scalar::SplitScalar;
+use fdx::encrypt::elgamal::{ExponentialElgamal, SplitScalar, MAX_BITS};
 
 const N: usize = Scalar::MODULUS_BIT_SIZE as usize / MAX_BITS + 1;
 
