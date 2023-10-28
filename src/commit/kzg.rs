@@ -1,8 +1,8 @@
 // We need to commit to G2 as well, which arkworks' kzg10 implementation doesn't allow
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::One;
 use ark_poly_commit::DenseUVPolynomial;
+use ark_std::One;
 
 pub struct Powers<C: Pairing> {
     pub g1: Vec<C::G1Affine>,
@@ -10,7 +10,7 @@ pub struct Powers<C: Pairing> {
 }
 
 impl<C: Pairing> Powers<C> {
-    pub fn unsafe_setup(tau: C::ScalarField, range: u64) -> Self {
+    pub fn unsafe_setup(tau: C::ScalarField, range: usize) -> Self {
         let mut g1 = Vec::new();
         let mut g2 = Vec::new();
         let mut exponent = C::ScalarField::one();

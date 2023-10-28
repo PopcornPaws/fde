@@ -10,10 +10,10 @@ fn completeness() {
 
     let secret = Scalar::rand(rng);
 
-    let h1 = (g1 * secret).into_affine();
-    let h2 = (g2 * secret).into_affine();
+    let h1 = g1 * secret;
+    let h2 = g2 * secret;
 
-    let proof = DleqProof::new(secret, g1, g2, rng);
+    let proof = DleqProof::new(&secret, g1, g2, rng);
 
     assert!(proof.verify(g1, h1, g2, h2));
 }
@@ -27,14 +27,14 @@ fn soundness() {
 
     let secret = Scalar::rand(rng);
 
-    let h1 = (g1 * secret).into_affine();
-    let h2 = (g2 * secret).into_affine();
+    let h1 = g1 * secret;
+    let h2 = g2 * secret;
 
     // invalid secret
-    let proof = DleqProof::new(secret * Scalar::from(2), g1, g2, rng);
+    let proof = DleqProof::new(&(secret * Scalar::from(2)), g1, g2, rng);
     assert!(!proof.verify(g1, h1, g2, h2));
 
     // invalid point
-    let proof = DleqProof::new(secret, g1, g2, rng);
+    let proof = DleqProof::new(&secret, g1, g2, rng);
     assert!(!proof.verify(g1, h1, g1, h1));
 }

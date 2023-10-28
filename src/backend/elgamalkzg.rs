@@ -28,7 +28,7 @@ where
         index: C::ScalarField,
         elgamal_r: C::ScalarField,
         encryption_sk: &C::ScalarField,
-        kzg: &Powers<C>,
+        powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
         // random values
@@ -47,8 +47,8 @@ where
         let r_poly = &P::from_coefficients_slice(&[-elgamal_r / secret_star]) - &d_poly;
 
         // kzg commitments
-        let com_r_poly = kzg.commit_g1(&r_poly);
-        let com_t_poly = kzg.commit_g1(&t_poly);
+        let com_r_poly = powers.commit_g1(&r_poly);
+        let com_t_poly = powers.commit_g1(&t_poly);
 
         Self {
             com_r_poly,
@@ -63,10 +63,10 @@ where
         com_f_poly: &C::G1Affine,
         index: C::ScalarField,
         cipher: &Cipher<C::G1>,
-        kzg: &Powers<C>,
+        powers: &Powers<C>,
     ) -> bool {
         let d_poly = P::from_coefficients_slice(&[-index, C::ScalarField::one()]);
-        let com_d_poly = kzg.commit_g2(&d_poly);
+        let com_d_poly = powers.commit_g2(&d_poly);
 
         let pairing_f_poly = C::pairing(
             C::G1::from(*com_f_poly) - C::G1::from(cipher.c1()),

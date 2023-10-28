@@ -3,3 +3,4 @@ pub mod backend;
 pub mod commit;
 pub mod dleq;
 pub mod encrypt;
+pub mod hash;
