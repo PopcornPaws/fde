@@ -6,6 +6,16 @@ edition = "2021"
 [profile.dev]
 opt-level = 3
 
+[features]
+parallel = [
+    "ark-crypto-primitives/parallel",
+    "ark-ec/parallel",
+    "ark-ff/parallel",
+    "ark-poly/parallel",
+    "ark-poly-commit/parallel",
+    "ark-std/parallel",
+]
+
 [dependencies]
 ark-crypto-primitives = { version = "0.4", features = ["signature"] }
 ark-ec = "0.4" 
