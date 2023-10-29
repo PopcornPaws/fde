@@ -14,6 +14,7 @@ parallel = [
     "ark-poly/parallel",
     "ark-poly-commit/parallel",
     "ark-std/parallel",
+    "rayon"
 ]
 
 [dependencies]
@@ -25,6 +26,7 @@ ark-poly-commit = "0.4"
 ark-serialize = "0.4"
 ark-std = "0.4"
 digest = "0.10"
+rayon = { version = "1.8", optional = true }
 
 [dev-dependencies]
 ark-bls12-381 = "0.4"
@@ -35,4 +37,9 @@ sha3 = "0.10"
 [[bench]]
 name = "elgamalkzg-backend"
 path = "benches/elgamalkzg.rs"
+harness = false
+
+[[bench]]
+name = "elgamalkzg-multi-backend"
+path = "benches/elgamalkzg_multi.rs"
 harness = false

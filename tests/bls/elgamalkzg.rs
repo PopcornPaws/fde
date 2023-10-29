@@ -34,7 +34,7 @@ fn flow() {
     // "offline" encryption with random secret key
     let encryption_sk = Scalar::rand(rng);
     let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
-    let split_eval = SpScalar::from(eval);
+    let split_eval = SplitScalar::from(eval);
 
     // encrypt split evaluation data
     let (short_ciphers, elgamal_r) = split_eval.encrypt::<Elgamal, _>(&encryption_pk, rng);
