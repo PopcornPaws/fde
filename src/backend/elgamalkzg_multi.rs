@@ -104,7 +104,7 @@ where
         let d_poly = P::from_coefficients_slice(&[-challenge, C::ScalarField::one()]);
         let q_poly = &(f_poly + &P::from_coefficients_slice(&[-challenge_eval])) / &d_poly;
         let challenge_opening_proof = powers.commit_g1(&q_poly);
-        let challenge_eval_commitment = (C::G1Affine::generator() * challenge).into_affine();
+        let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
         let lagrange_evaluations = input.domain.evaluate_all_lagrange_coefficients(challenge);
         let q_point = input
@@ -169,10 +169,10 @@ where
             com_f_poly + neg_challenge_eval_commitment,
             C::G2Affine::generator(),
         );
-        let rhs_pairing = C::pairing(self.challenge_opening_proof, powers.g2[0] + neg_g_challenge);
+        let rhs_pairing = C::pairing(self.challenge_opening_proof, powers.g2[1] + neg_g_challenge);
 
-        let pairing_check = lhs_pairing == rhs_pairing;
+        let pairing_check = dbg!(lhs_pairing == rhs_pairing);
 
-        dleq_check && pairing_check
+        dbg!(dleq_check) && pairing_check
     }
 }
