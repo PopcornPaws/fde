@@ -46,6 +46,6 @@ fn flow() {
     // compute kzg proof
     let proof = ElgamalKzgProof::new(&f_poly, index, elgamal_r, &encryption_sk, &powers, rng);
 
-    assert!(proof.verify(&com_f_poly, index, &long_cipher, &powers));
+    assert!(proof.verify(com_f_poly, index, &long_cipher, &powers));
     assert!(long_cipher.check_encrypted_sum::<{ MAX_BITS }>(&short_ciphers));
 }

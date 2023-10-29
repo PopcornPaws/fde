@@ -47,8 +47,8 @@ where
         let r_poly = &P::from_coefficients_slice(&[-elgamal_r / secret_star]) - &d_poly;
 
         // kzg commitments
-        let com_r_poly = powers.commit_g1(&r_poly);
-        let com_t_poly = powers.commit_g1(&t_poly);
+        let com_r_poly = powers.commit_g1(&r_poly).into();
+        let com_t_poly = powers.commit_g1(&t_poly).into();
 
         Self {
             com_r_poly,
@@ -60,7 +60,7 @@ where
 
     pub fn verify(
         &self,
-        com_f_poly: &C::G1Affine,
+        com_f_poly: C::G1,
         index: C::ScalarField,
         cipher: &Cipher<C::G1>,
         powers: &Powers<C>,
@@ -68,10 +68,7 @@ where
         let d_poly = P::from_coefficients_slice(&[-index, C::ScalarField::one()]);
         let com_d_poly = powers.commit_g2(&d_poly);
 
-        let pairing_f_poly = C::pairing(
-            C::G1::from(*com_f_poly) - C::G1::from(cipher.c1()),
-            C::G2::generator(),
-        );
+        let pairing_f_poly = C::pairing(com_f_poly - C::G1::from(cipher.c1()), C::G2::generator());
         let pairing_t_poly = C::pairing(self.com_t_poly, com_d_poly);
         let pairing_r_poly = C::pairing(self.com_r_poly, self.h_secret_star);
 

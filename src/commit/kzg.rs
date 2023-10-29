@@ -1,6 +1,6 @@
 // We need to commit to G2 as well, which arkworks' kzg10 implementation doesn't allow
 use ark_ec::pairing::Pairing;
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
 use ark_poly_commit::DenseUVPolynomial;
 use ark_std::One;
 
@@ -25,25 +25,15 @@ impl<C: Pairing> Powers<C> {
     pub fn commit_g1<P: DenseUVPolynomial<C::ScalarField, Point = C::ScalarField>>(
         &self,
         poly: &P,
-    ) -> C::G1Affine {
-        poly.coeffs()
-            .iter()
-            .zip(self.g1.iter().take(poly.coeffs().len()))
-            .fold(C::G1Affine::zero(), |acc, (coeff, base)| {
-                (acc + *base * *coeff).into()
-            })
+    ) -> C::G1 {
+        Msm::msm_unchecked(&self.g1[0..poly.coeffs().len()], poly.coeffs())
     }
 
     pub fn commit_g2<P: DenseUVPolynomial<C::ScalarField, Point = C::ScalarField>>(
         &self,
         poly: &P,
-    ) -> C::G2Affine {
-        poly.coeffs()
-            .iter()
-            .zip(self.g2.iter().take(poly.coeffs().len()))
-            .fold(C::G2Affine::zero(), |acc, (coeff, base)| {
-                (acc + *base * *coeff).into()
-            })
+    ) -> C::G2 {
+        Msm::msm_unchecked(&self.g2[0..poly.coeffs().len()], poly.coeffs())
     }
 }
 

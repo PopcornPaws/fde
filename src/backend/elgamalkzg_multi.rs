@@ -4,7 +4,7 @@ use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal};
 use crate::encrypt::EncryptionEngine;
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::PrimeField;
 use ark_poly::domain::general::GeneralEvaluationDomain;
 use ark_poly::evaluations::univariate::Evaluations;
@@ -24,7 +24,6 @@ pub struct PublicProofInput<C: Pairing> {
     domain: GeneralEvaluationDomain<C::ScalarField>,
 }
 
-// TODO replace folding with variable base MSM
 impl<C: Pairing> PublicProofInput<C> {
     pub fn new<R: Rng>(
         data: Vec<C::ScalarField>,
@@ -103,17 +102,19 @@ where
 
         let d_poly = P::from_coefficients_slice(&[-challenge, C::ScalarField::one()]);
         let q_poly = &(f_poly + &P::from_coefficients_slice(&[-challenge_eval])) / &d_poly;
-        let challenge_opening_proof = powers.commit_g1(&q_poly);
+        let challenge_opening_proof = powers.commit_g1(&q_poly).into();
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
         let lagrange_evaluations = input.domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point = input
-            .random_encryption_points
-            .iter()
-            .zip(lagrange_evaluations)
-            .fold(C::G1Affine::zero(), |acc, (p, l)| (acc + *p * l).into());
+        let q_point: C::G1 =
+            Msm::msm_unchecked(&input.random_encryption_points, &lagrange_evaluations);
 
-        let dleq_proof = DleqProof::new(encryption_sk, q_point, C::G1Affine::generator(), rng);
+        let dleq_proof = DleqProof::new(
+            encryption_sk,
+            q_point.into_affine(),
+            C::G1Affine::generator(),
+            rng,
+        );
 
         Self {
             challenge_eval_commitment,
@@ -126,16 +127,21 @@ where
 
     pub fn verify(
         &self,
-        com_f_poly: C::G1Affine,
+        com_f_poly: C::G1,
         input: &PublicProofInput<C>,
         encryption_pk: C::G1Affine,
         powers: &Powers<C>,
     ) -> bool {
         let mut hasher = Hasher::<D>::new();
-        input
+        let c1_points: Vec<C::G1Affine> = input
             .encryptions
             .iter()
-            .for_each(|enc| hasher.update(&enc.c1()));
+            .map(|enc| {
+                let c1 = enc.c1();
+                hasher.update(&c1);
+                c1
+            })
+            .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
 
         let lagrange_evaluations = input.domain.evaluate_all_lagrange_coefficients(challenge);
@@ -145,13 +151,7 @@ where
             .zip(&lagrange_evaluations)
             .fold(C::G1Affine::zero(), |acc, (p, l)| (acc + *p * l).into());
 
-        let ct_point = input
-            .encryptions
-            .iter()
-            .zip(&lagrange_evaluations)
-            .fold(C::G1Affine::zero(), |acc, (enc, l)| {
-                (acc + enc.c1() * l).into()
-            });
+        let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, &lagrange_evaluations);
 
         let neg_challenge_eval_commitment = self.challenge_eval_commitment.neg();
         let q_star = ct_point + neg_challenge_eval_commitment;
@@ -171,8 +171,8 @@ where
         );
         let rhs_pairing = C::pairing(self.challenge_opening_proof, powers.g2[1] + neg_g_challenge);
 
-        let pairing_check = dbg!(lhs_pairing == rhs_pairing);
+        let pairing_check = lhs_pairing == rhs_pairing;
 
-        dbg!(dleq_check) && pairing_check
+        dleq_check && pairing_check
     }
 }
