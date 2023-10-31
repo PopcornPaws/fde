@@ -72,7 +72,7 @@ fn elgamal_homomorphism() {
 fn split_encryption() {
     let rng = &mut test_rng();
     let scalar = Scalar::rand(rng);
-    let split_scalar = SpScalar::from(scalar);
+    let split_scalar = SplitScalar::from(scalar);
     let secret = Scalar::rand(rng);
     let encryption_key = (G1Affine::generator() * secret).into_affine();
 

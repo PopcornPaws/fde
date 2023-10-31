@@ -6,7 +6,7 @@ use fdx::encrypt::EncryptionEngine;
 #[test]
 fn scalar_splitting() {
     let scalar = Scalar::zero();
-    let split_scalar = SpScalar::from(scalar);
+    let split_scalar = SplitScalar::from(scalar);
     println!("{:?}", split_scalar);
     let reconstructed_scalar = split_scalar.reconstruct();
     assert_eq!(scalar, reconstructed_scalar);
@@ -15,7 +15,7 @@ fn scalar_splitting() {
     let max_scalar = Scalar::from(u32::MAX);
     for _ in 0..10 {
         let scalar = Scalar::rand(rng);
-        let split_scalar = SpScalar::from(scalar);
+        let split_scalar = SplitScalar::from(scalar);
         for split in split_scalar.splits() {
             assert!(split <= &max_scalar);
         }
@@ -29,7 +29,7 @@ fn encryption() {
     let rng = &mut test_rng();
     let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * Scalar::rand(rng)).into_affine();
     let scalar = Scalar::rand(rng);
-    let split_scalar = SpScalar::from(scalar);
+    let split_scalar = SplitScalar::from(scalar);
 
     let (short_ciphers, elgamal_r) = split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
     let long_cipher =

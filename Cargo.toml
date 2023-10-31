@@ -8,12 +8,13 @@ opt-level = 3
 
 [features]
 parallel = [
-    "ark-crypto-primitives/parallel",
-    "ark-ec/parallel",
-    "ark-ff/parallel",
-    "ark-poly/parallel",
-    "ark-poly-commit/parallel",
-    "ark-std/parallel",
+    # parallel feature is enabled by default
+    #"ark-crypto-primitives/parallel",
+    #"ark-ec/parallel",
+    #"ark-ff/parallel",
+    #"ark-poly/parallel",
+    #"ark-poly-commit/parallel",
+    #"ark-std/parallel",
     "rayon"
 ]
 
@@ -34,10 +35,10 @@ ark-secp256k1 = "0.4"
 criterion = "0.5"
 sha3 = "0.10"
 
-[[bench]]
-name = "elgamalkzg-backend"
-path = "benches/elgamalkzg.rs"
-harness = false
+#[[bench]]
+#name = "elgamalkzg-backend"
+#path = "benches/elgamalkzg.rs"
+#harness = false
 
 [[bench]]
 name = "elgamalkzg-multi-backend"

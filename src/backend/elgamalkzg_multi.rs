@@ -7,8 +7,6 @@ use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::PrimeField;
 use ark_poly::domain::general::GeneralEvaluationDomain;
-use ark_poly::evaluations::univariate::Evaluations;
-use ark_poly::univariate::DensePolynomial;
 use ark_poly::EvaluationDomain;
 use ark_poly_commit::DenseUVPolynomial;
 use ark_std::marker::PhantomData;
@@ -18,7 +16,6 @@ use ark_std::{One, UniformRand};
 use digest::Digest;
 
 pub struct PublicProofInput<C: Pairing> {
-    evaluations: Evaluations<C::ScalarField>,
     encryptions: Vec<Cipher<C::G1>>,
     random_encryption_points: Vec<C::G1Affine>,
     domain: GeneralEvaluationDomain<C::ScalarField>,
@@ -26,13 +23,12 @@ pub struct PublicProofInput<C: Pairing> {
 
 impl<C: Pairing> PublicProofInput<C> {
     pub fn new<R: Rng>(
-        data: Vec<C::ScalarField>,
+        evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
         rng: &mut R,
     ) -> Self {
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(data.len()).unwrap();
-        let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let rands: Vec<C::ScalarField> = (0..evaluations.evals.len())
+        let domain = GeneralEvaluationDomain::new(evaluations.len()).unwrap();
+        let rands: Vec<C::ScalarField> = (0..evaluations.len())
             .map(|_| C::ScalarField::rand(rng))
             .collect();
         let random_encryption_points: Vec<C::G1Affine> = rands
@@ -41,7 +37,6 @@ impl<C: Pairing> PublicProofInput<C> {
             .collect();
 
         let encryptions: Vec<Cipher<C::G1>> = evaluations
-            .evals
             .iter()
             .zip(&rands)
             .map(|(eval, rand)| {
@@ -54,15 +49,10 @@ impl<C: Pairing> PublicProofInput<C> {
             .collect();
 
         Self {
-            evaluations,
             encryptions,
             random_encryption_points,
             domain,
         }
-    }
-
-    pub fn interpolate(&self) -> DensePolynomial<C::ScalarField> {
-        self.evaluations.interpolate_by_ref()
     }
 }
 
