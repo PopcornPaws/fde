@@ -36,6 +36,8 @@ impl<C: Pairing> PublicProofInput<C> {
             .map(|r| (C::G1Affine::generator() * r).into_affine())
             .collect();
 
+        // TODO add split scalars
+
         let encryptions: Vec<Cipher<C::G1>> = evaluations
             .iter()
             .zip(&rands)
