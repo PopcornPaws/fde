@@ -145,11 +145,8 @@ where
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
 
         let lagrange_evaluations = input.domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point = input
-            .random_encryption_points
-            .iter()
-            .zip(&lagrange_evaluations)
-            .fold(C::G1Affine::zero(), |acc, (p, l)| (acc + *p * l).into());
+        let q_point: C::G1 =
+            Msm::msm_unchecked(&input.random_encryption_points, &lagrange_evaluations);
 
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, &lagrange_evaluations);
 
@@ -157,7 +154,7 @@ where
         let q_star = ct_point + neg_challenge_eval_commitment;
 
         let dleq_check = self.dleq_proof.verify(
-            q_point,
+            q_point.into(),
             q_star,
             C::G1Affine::generator(),
             encryption_pk.into(),
