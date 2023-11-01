@@ -36,12 +36,12 @@ impl<C: CurveGroup> Cipher<C> {
         self.0[1]
     }
 
-    pub fn check_encrypted_sum<const B: usize>(&self, ciphers: &[Self]) -> bool {
+    pub fn check_encrypted_sum(&self, ciphers: &[Self]) -> bool {
         let ciphers_sum = ciphers
             .iter()
             .enumerate()
             .fold(Self::zero(), |acc, (i, c)| {
-                acc + *c * shift_scalar(&C::ScalarField::one(), B * i)
+                acc + *c * shift_scalar(&C::ScalarField::one(), MAX_BITS * i)
             });
         ciphers_sum == *self
     }
@@ -122,7 +122,6 @@ impl<C: CurveGroup> ExponentialElgamal<C> {
 
 #[cfg(test)]
 mod test {
-    use super::MAX_BITS;
     use crate::encrypt::EncryptionEngine;
     use crate::tests::{Elgamal, G1Affine, Scalar, SplitScalar};
     use ark_ec::{AffineRepr, CurveGroup};
@@ -206,6 +205,6 @@ mod test {
 
         let cipher = Elgamal::encrypt_with_randomness(&scalar, &encryption_key, &randomness);
 
-        assert!(cipher.check_encrypted_sum::<{ MAX_BITS }>(&ciphers));
+        assert!(cipher.check_encrypted_sum(&ciphers));
     }
 }

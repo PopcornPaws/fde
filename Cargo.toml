@@ -53,3 +53,8 @@ harness = false
 name = "kzg-elgamal-slow-backend"
 path = "benches/kzg_elgamal_slow.rs"
 harness = false
+
+[[bench]]
+name = "split-elgamal-encryption"
+path = "benches/elgamal.rs"
+harness = false

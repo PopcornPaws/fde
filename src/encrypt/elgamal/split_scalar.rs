@@ -84,7 +84,6 @@ impl<const N: usize, S: PrimeField> From<S> for SplitScalar<N, S> {
 
 #[cfg(test)]
 mod test {
-    use crate::encrypt::elgamal::MAX_BITS;
     use crate::encrypt::EncryptionEngine;
     use crate::tests::{Elgamal, G1Affine, Scalar, SplitScalar};
     use ark_ec::{AffineRepr, CurveGroup};
@@ -125,6 +124,6 @@ mod test {
             &elgamal_r,
         );
 
-        assert!(long_cipher.check_encrypted_sum::<{ MAX_BITS }>(&short_ciphers));
+        assert!(long_cipher.check_encrypted_sum(&short_ciphers));
     }
 }

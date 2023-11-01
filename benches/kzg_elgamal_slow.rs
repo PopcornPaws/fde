@@ -15,7 +15,7 @@ use rayon::prelude::*;
 type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type UniPoly = DensePolynomial<Scalar>;
-type Proof = fdx::backend::elgamalkzg::Proof<BlsCurve, UniPoly>;
+type Proof = fdx::backend::kzg_elgamal_slow::Proof<BlsCurve, UniPoly>;
 type Cipher = fdx::encrypt::elgamal::Cipher<<BlsCurve as Pairing>::G1>;
 
 const D: usize = 32;
@@ -63,7 +63,7 @@ impl Input {
 
 fn bench_proof(c: &mut Criterion) {
     assert!(D >= N);
-    let mut group = c.benchmark_group("elgamal-kzg");
+    let mut group = c.benchmark_group("elgamal-kzg-slow");
 
     let rng = &mut test_rng();
     // kzg setup

@@ -167,7 +167,6 @@ where
 #[cfg(test)]
 mod test {
     use crate::commit::kzg::Powers;
-    use crate::encrypt::elgamal::MAX_BITS;
     use crate::tests::{BlsCurve, KzgElgamalProof, PublicProofInput, Scalar, UniPoly};
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
@@ -185,14 +184,12 @@ mod test {
         let encryption_sk = Scalar::rand(rng);
         let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
 
-        // we have D data points which we interpolate into a polynomial with N coefficients
         let data: Vec<Scalar> = (0..D).map(|_| Scalar::rand(rng)).collect();
         let domain = GeneralEvaluationDomain::new(data.len()).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let com_f_poly = powers.commit_g1(&f_poly);
 
-        // we only reveal a subset of the evaluations
         let input = PublicProofInput::new(&evaluations.evals, &encryption_pk, rng);
         let proof = KzgElgamalProof::new(
             &f_poly,
@@ -213,7 +210,7 @@ mod test {
         ));
 
         for (cipher, short_cipher) in input.ciphers.iter().zip(&input.short_ciphers) {
-            assert!(cipher.check_encrypted_sum::<{ MAX_BITS }>(short_cipher));
+            assert!(cipher.check_encrypted_sum(short_cipher));
         }
     }
 }

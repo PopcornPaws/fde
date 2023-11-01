@@ -79,7 +79,6 @@ where
 #[cfg(test)]
 mod test {
     use crate::commit::kzg::Powers;
-    use crate::encrypt::elgamal::MAX_BITS;
     use crate::encrypt::EncryptionEngine;
     use crate::tests::*;
     use ark_ec::{AffineRepr, CurveGroup};
@@ -132,6 +131,6 @@ mod test {
             KzgElgamalSlowProof::new(&f_poly, index, elgamal_r, &encryption_sk, &powers, rng);
 
         assert!(proof.verify(com_f_poly, index, &long_cipher, &powers));
-        assert!(long_cipher.check_encrypted_sum::<{ MAX_BITS }>(&short_ciphers));
+        assert!(long_cipher.check_encrypted_sum(&short_ciphers));
     }
 }
