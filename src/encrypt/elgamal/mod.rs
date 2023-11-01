@@ -5,7 +5,7 @@ pub use split_scalar::SplitScalar;
 use utils::shift_scalar;
 
 use super::EncryptionEngine;
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup};//, ScalarMul, VariableBaseMSM as Msm};
 use ark_std::marker::PhantomData;
 use ark_std::ops::{Add, Mul};
 use ark_std::rand::Rng;
@@ -36,7 +36,24 @@ impl<C: CurveGroup> Cipher<C> {
         self.0[1]
     }
 
-    pub fn check_encrypted_sum(&self, ciphers: &[Self]) -> bool {
+    pub fn check_encrypted_sum(&self, ciphers: &[Self]) -> bool
+//where
+    //    <C as CurveGroup>::Affine: ScalarMul + Msm,
+    {
+        // TODO MSM?
+        //let mut c0_points = Vec::with_capacity(ciphers.len());
+        //let mut c1_points = Vec::with_capacity(ciphers.len());
+        //let mut shifted_ones = Vec::with_capacity(ciphers.len());
+
+        //for (i, cipher) in ciphers.iter().enumerate() {
+        //    c0_points.push(cipher.c0());
+        //    c1_points.push(cipher.c1());
+        //    shifted_ones.push(shift_scalar(&C::ScalarField::one(), MAX_BITS * i));
+        //}
+        //let c0_msm = Msm::msm_unchecked(&c0_points, &shifted_ones);
+        //let c1_msm = Msm::msm_unchecked(&c0_points, &shifted_ones);
+
+        //let ciphers_sum = Self([c0_msm, c1_msm]);
         let ciphers_sum = ciphers
             .iter()
             .enumerate()
