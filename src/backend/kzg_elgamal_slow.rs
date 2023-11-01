@@ -78,15 +78,15 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::tests::*;
     use crate::commit::kzg::Powers;
     use crate::encrypt::elgamal::MAX_BITS;
     use crate::encrypt::EncryptionEngine;
-    use ark_ec::{CurveGroup, AffineRepr};
+    use crate::tests::*;
+    use ark_ec::{AffineRepr, CurveGroup};
     use ark_poly::domain::general::GeneralEvaluationDomain;
     use ark_poly::evaluations::univariate::Evaluations;
     use ark_poly::{EvaluationDomain, Polynomial};
-    use ark_std::{UniformRand, test_rng};
+    use ark_std::{test_rng, UniformRand};
 
     #[test]
     fn completeness() {
@@ -128,7 +128,8 @@ mod test {
         );
 
         // compute kzg proof
-        let proof = KzgElgamalSlowProof::new(&f_poly, index, elgamal_r, &encryption_sk, &powers, rng);
+        let proof =
+            KzgElgamalSlowProof::new(&f_poly, index, elgamal_r, &encryption_sk, &powers, rng);
 
         assert!(proof.verify(com_f_poly, index, &long_cipher, &powers));
         assert!(long_cipher.check_encrypted_sum::<{ MAX_BITS }>(&short_ciphers));

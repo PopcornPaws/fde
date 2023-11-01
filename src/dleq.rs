@@ -60,7 +60,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::tests::{G1Affine, DleqProof, Scalar};
+    use crate::tests::{DleqProof, G1Affine, Scalar};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand};
 

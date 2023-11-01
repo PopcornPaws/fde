@@ -1,6 +1,6 @@
 use crate::commit::kzg::Powers;
 use crate::dleq::Proof as DleqProof;
-use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal};
+use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal, SplitScalar};
 use crate::encrypt::EncryptionEngine;
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
@@ -12,44 +12,44 @@ use ark_poly_commit::DenseUVPolynomial;
 use ark_std::marker::PhantomData;
 use ark_std::ops::{Add, Div, Neg, Sub};
 use ark_std::rand::Rng;
-use ark_std::{One, UniformRand};
+use ark_std::One;
 use digest::Digest;
 
-pub struct PublicProofInput<C: Pairing> {
-    encryptions: Vec<Cipher<C::G1>>,
-    random_encryption_points: Vec<C::G1Affine>,
-    domain: GeneralEvaluationDomain<C::ScalarField>,
+pub struct PublicProofInput<const N: usize, C: Pairing> {
+    pub ciphers: Vec<Cipher<C::G1>>,
+    pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
+    pub random_encryption_points: Vec<C::G1Affine>,
+    pub domain: GeneralEvaluationDomain<C::ScalarField>,
 }
 
-impl<C: Pairing> PublicProofInput<C> {
+impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
     pub fn new<R: Rng>(
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
         rng: &mut R,
     ) -> Self {
         let domain = GeneralEvaluationDomain::new(evaluations.len()).unwrap();
-        let rands: Vec<C::ScalarField> = (0..evaluations.len())
-            .map(|_| C::ScalarField::rand(rng))
-            .collect();
-        let random_encryption_points: Vec<C::G1Affine> = rands
-            .iter()
-            .map(|r| (C::G1Affine::generator() * r).into_affine())
-            .collect();
 
-        let encryptions: Vec<Cipher<C::G1>> = evaluations
-            .iter()
-            .zip(&rands)
-            .map(|(eval, rand)| {
-                <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
-                    eval,
-                    encryption_pk,
-                    rand,
-                )
-            })
-            .collect();
+        let mut random_encryption_points = Vec::with_capacity(evaluations.len());
+        let mut ciphers = Vec::with_capacity(evaluations.len());
+        let mut short_ciphers = Vec::with_capacity(evaluations.len());
+
+        for eval in evaluations {
+            let split_eval = SplitScalar::from(*eval);
+            let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(&encryption_pk, rng);
+            let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
+                eval,
+                encryption_pk,
+                &rand,
+            );
+            random_encryption_points.push((C::G1Affine::generator() * rand).into_affine());
+            ciphers.push(cipher);
+            short_ciphers.push(sc);
+        }
 
         Self {
-            encryptions,
+            ciphers,
+            short_ciphers,
             random_encryption_points,
             domain,
         }
@@ -77,16 +77,17 @@ where
 {
     pub fn new<R: Rng>(
         f_poly: &P,
-        input: &PublicProofInput<C>,
+        domain: &GeneralEvaluationDomain<C::ScalarField>,
+        ciphers: &[Cipher<C::G1>],
+        random_encryption_points: &[C::G1Affine],
         encryption_sk: &C::ScalarField,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
         let mut hasher = Hasher::<D>::new();
-        input
-            .encryptions
+        ciphers
             .iter()
-            .for_each(|enc| hasher.update(&enc.c1()));
+            .for_each(|cipher| hasher.update(&cipher.c1()));
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
         let challenge_eval = f_poly.evaluate(&challenge);
 
@@ -95,9 +96,8 @@ where
         let challenge_opening_proof = powers.commit_g1(&q_poly).into();
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
-        let lagrange_evaluations = input.domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point: C::G1 =
-            Msm::msm_unchecked(&input.random_encryption_points, &lagrange_evaluations);
+        let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(challenge);
+        let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, &lagrange_evaluations);
 
         let dleq_proof = DleqProof::new(
             encryption_sk,
@@ -118,25 +118,25 @@ where
     pub fn verify(
         &self,
         com_f_poly: C::G1,
-        input: &PublicProofInput<C>,
+        domain: &GeneralEvaluationDomain<C::ScalarField>,
+        ciphers: &[Cipher<C::G1>],
+        random_encryption_points: &[C::G1Affine],
         encryption_pk: C::G1Affine,
         powers: &Powers<C>,
     ) -> bool {
         let mut hasher = Hasher::<D>::new();
-        let c1_points: Vec<C::G1Affine> = input
-            .encryptions
+        let c1_points: Vec<C::G1Affine> = ciphers
             .iter()
-            .map(|enc| {
-                let c1 = enc.c1();
+            .map(|cipher| {
+                let c1 = cipher.c1();
                 hasher.update(&c1);
                 c1
             })
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
 
-        let lagrange_evaluations = input.domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point: C::G1 =
-            Msm::msm_unchecked(&input.random_encryption_points, &lagrange_evaluations);
+        let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(challenge);
+        let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, &lagrange_evaluations);
 
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, &lagrange_evaluations);
 
@@ -166,14 +166,15 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::commit::kzg::Powers;
-    use crate::tests::{KzgElgamalProof, Scalar, UniPoly, BlsCurve};
+    use crate::encrypt::elgamal::MAX_BITS;
+    use crate::tests::{BlsCurve, KzgElgamalProof, PublicProofInput, Scalar, UniPoly};
+    use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
     use ark_std::{test_rng, UniformRand};
 
-    const D: usize = 512;
+    const D: usize = 32;
 
     #[test]
     fn flow() {
@@ -192,8 +193,27 @@ mod test {
         let com_f_poly = powers.commit_g1(&f_poly);
 
         // we only reveal a subset of the evaluations
-        let input = PublicProofInput::<BlsCurve>::new(&evaluations.evals, &encryption_pk, rng);
-        let proof = KzgElgamalProof::new(&f_poly, &input, &encryption_sk, &powers, rng);
-        assert!(proof.verify(com_f_poly, &input, encryption_pk, &powers));
+        let input = PublicProofInput::new(&evaluations.evals, &encryption_pk, rng);
+        let proof = KzgElgamalProof::new(
+            &f_poly,
+            &input.domain,
+            &input.ciphers,
+            &input.random_encryption_points,
+            &encryption_sk,
+            &powers,
+            rng,
+        );
+        assert!(proof.verify(
+            com_f_poly,
+            &input.domain,
+            &input.ciphers,
+            &input.random_encryption_points,
+            encryption_pk,
+            &powers
+        ));
+
+        for (cipher, short_cipher) in input.ciphers.iter().zip(&input.short_ciphers) {
+            assert!(cipher.check_encrypted_sum::<{ MAX_BITS }>(short_cipher));
+        }
     }
 }

@@ -4,6 +4,8 @@ use crate::encrypt::EncryptionEngine;
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_std::rand::Rng;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SplitScalar<const N: usize, S>([S; N]);
@@ -14,13 +16,7 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
     }
 
     pub fn reconstruct(&self) -> S {
-        self.splits()
-            .iter()
-            .enumerate()
-            .fold(S::zero(), |acc, (i, split)| {
-                let shift = shift_scalar(split, MAX_BITS * i);
-                acc + shift
-            })
+        sum_shifted(self.splits())
     }
 
     pub fn encrypt<E, R>(
@@ -41,10 +37,7 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
             .map(|(s, r)| E::encrypt_with_randomness(s, encryption_key, r))
             .collect();
 
-        let shifted_rand_sum = rands
-            .iter()
-            .enumerate()
-            .fold(S::zero(), |acc, (i, r)| acc + shift_scalar(r, MAX_BITS * i));
+        let shifted_rand_sum = sum_shifted(&rands);
 
         // NOTE unwrap is fine because ciphers.len() is always N
         (ciphers.try_into().unwrap(), shifted_rand_sum)
@@ -53,6 +46,26 @@ impl<const N: usize, S: PrimeField> SplitScalar<N, S> {
     pub fn splits(&self) -> &[S; N] {
         &self.0
     }
+}
+
+#[cfg(not(feature = "parallel"))]
+fn sum_shifted<S: PrimeField>(splits: &[S]) -> S {
+    splits
+        .iter()
+        .enumerate()
+        .fold(S::zero(), |acc, (i, s)| acc + shift_scalar(s, MAX_BITS * i))
+}
+
+#[cfg(feature = "parallel")]
+fn sum_shifted<S: PrimeField>(splits: &[S]) -> S {
+    splits
+        .par_iter()
+        .enumerate()
+        .fold(
+            || S::zero(),
+            |acc, (i, s)| acc + shift_scalar(s, MAX_BITS * i),
+        )
+        .sum()
 }
 
 impl<const N: usize, S: PrimeField> From<S> for SplitScalar<N, S> {
@@ -73,8 +86,8 @@ impl<const N: usize, S: PrimeField> From<S> for SplitScalar<N, S> {
 mod test {
     use crate::encrypt::elgamal::MAX_BITS;
     use crate::encrypt::EncryptionEngine;
-    use crate::tests::{Elgamal, Scalar, SplitScalar, G1Affine};
-    use ark_ec::{CurveGroup, AffineRepr};
+    use crate::tests::{Elgamal, G1Affine, Scalar, SplitScalar};
+    use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand, Zero};
 
     #[test]
@@ -101,8 +114,7 @@ mod test {
     #[test]
     fn encryption() {
         let rng = &mut test_rng();
-        let encryption_pk =
-            (G1Affine::generator() * Scalar::rand(rng)).into_affine();
+        let encryption_pk = (G1Affine::generator() * Scalar::rand(rng)).into_affine();
         let scalar = Scalar::rand(rng);
         let split_scalar = SplitScalar::from(scalar);
 
