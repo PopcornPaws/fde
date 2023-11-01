@@ -36,8 +36,6 @@ impl<C: Pairing> PublicProofInput<C> {
             .map(|r| (C::G1Affine::generator() * r).into_affine())
             .collect();
 
-        // TODO add split scalars
-
         let encryptions: Vec<Cipher<C::G1>> = evaluations
             .iter()
             .zip(&rands)
@@ -163,5 +161,39 @@ where
         let pairing_check = lhs_pairing == rhs_pairing;
 
         dleq_check && pairing_check
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::commit::kzg::Powers;
+    use crate::tests::{KzgElgamalProof, Scalar, UniPoly, BlsCurve};
+    use ark_ec::{CurveGroup, Group};
+    use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
+    use ark_std::{test_rng, UniformRand};
+
+    const D: usize = 512;
+
+    #[test]
+    fn flow() {
+        let rng = &mut test_rng();
+        let tau = Scalar::rand(rng);
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, D);
+
+        let encryption_sk = Scalar::rand(rng);
+        let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
+
+        // we have D data points which we interpolate into a polynomial with N coefficients
+        let data: Vec<Scalar> = (0..D).map(|_| Scalar::rand(rng)).collect();
+        let domain = GeneralEvaluationDomain::new(data.len()).unwrap();
+        let evaluations = Evaluations::from_vec_and_domain(data, domain);
+        let f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_poly = powers.commit_g1(&f_poly);
+
+        // we only reveal a subset of the evaluations
+        let input = PublicProofInput::<BlsCurve>::new(&evaluations.evals, &encryption_pk, rng);
+        let proof = KzgElgamalProof::new(&f_poly, &input, &encryption_sk, &powers, rng);
+        assert!(proof.verify(com_f_poly, &input, encryption_pk, &powers));
     }
 }

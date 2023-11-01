@@ -7,26 +7,35 @@ edition = "2021"
 opt-level = 3
 
 [features]
+default = ["std"]
+std = [
+    "ark-crypto-primitives/std",
+    "ark-ec/std",
+    "ark-ff/std",
+    "ark-poly/std",
+    "ark-poly-commit/std",
+    "ark-serialize/std",
+    "ark-std/std",
+]
 parallel = [
-    # parallel feature is enabled by default
-    #"ark-crypto-primitives/parallel",
-    #"ark-ec/parallel",
-    #"ark-ff/parallel",
-    #"ark-poly/parallel",
-    #"ark-poly-commit/parallel",
-    #"ark-std/parallel",
+    "ark-crypto-primitives/parallel",
+    "ark-ec/parallel",
+    "ark-ff/parallel",
+    "ark-poly/parallel",
+    "ark-poly-commit/parallel",
+    "ark-std/parallel",
     "rayon"
 ]
 
 [dependencies]
-ark-crypto-primitives = { version = "0.4", features = ["signature"] }
-ark-ec = "0.4" 
-ark-ff = "0.4" 
-ark-poly = "0.4"
-ark-poly-commit = "0.4"
-ark-serialize = "0.4"
-ark-std = "0.4"
-digest = "0.10"
+ark-crypto-primitives = { version = "0.4", default-features = false, features = ["signature"] }
+ark-ec = { version = "0.4", default-features = false }
+ark-ff = { version = "0.4", default-features = false }
+ark-poly = { version = "0.4", default-features = false }
+ark-poly-commit = { version = "0.4", default-features = false }
+ark-serialize = { version = "0.4", default-features = false }
+ark-std = { version = "0.4", default-features = false }
+digest = { version = "0.10", default-features = false }
 rayon = { version = "1.8", optional = true }
 
 [dev-dependencies]
@@ -35,12 +44,12 @@ ark-secp256k1 = "0.4"
 criterion = "0.5"
 sha3 = "0.10"
 
-#[[bench]]
-#name = "elgamalkzg-backend"
-#path = "benches/elgamalkzg.rs"
-#harness = false
+[[bench]]
+name = "kzg-elgamal-backend"
+path = "benches/kzg_elgamal.rs"
+harness = false
 
 [[bench]]
-name = "elgamalkzg-multi-backend"
-path = "benches/elgamalkzg_multi.rs"
+name = "kzg-elgamal-slow-backend"
+path = "benches/kzg_elgamal_slow.rs"
 harness = false

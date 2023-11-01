@@ -75,3 +75,62 @@ where
         pairing_f_poly == pairing_t_poly + pairing_r_poly
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::tests::*;
+    use crate::commit::kzg::Powers;
+    use crate::encrypt::elgamal::MAX_BITS;
+    use crate::encrypt::EncryptionEngine;
+    use ark_ec::{CurveGroup, AffineRepr};
+    use ark_poly::domain::general::GeneralEvaluationDomain;
+    use ark_poly::evaluations::univariate::Evaluations;
+    use ark_poly::{EvaluationDomain, Polynomial};
+    use ark_std::{UniformRand, test_rng};
+
+    #[test]
+    fn completeness() {
+        let rng = &mut test_rng();
+
+        // kzg setup
+        let tau = Scalar::rand(rng);
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 10);
+
+        // polynomial
+        let domain = GeneralEvaluationDomain::<Scalar>::new(3).unwrap();
+        let data = vec![
+            Scalar::from(2),
+            Scalar::from(3),
+            Scalar::from(6),
+            Scalar::from(11),
+        ];
+        let evaluations = Evaluations::from_vec_and_domain(data, domain);
+        let f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_poly = powers.commit_g1(&f_poly);
+
+        // index and eval
+        let index = Scalar::from(7u32);
+        let eval = f_poly.evaluate(&index);
+
+        // "offline" encryption with random secret key
+        let encryption_sk = Scalar::rand(rng);
+        let encryption_pk = (G1Affine::generator() * encryption_sk).into_affine();
+        let split_eval = SplitScalar::from(eval);
+
+        // encrypt split evaluation data
+        let (short_ciphers, elgamal_r) = split_eval.encrypt::<Elgamal, _>(&encryption_pk, rng);
+
+        // elgamal encryption
+        let long_cipher = <Elgamal as EncryptionEngine>::encrypt_with_randomness(
+            &eval,
+            &encryption_pk,
+            &elgamal_r,
+        );
+
+        // compute kzg proof
+        let proof = KzgElgamalSlowProof::new(&f_poly, index, elgamal_r, &encryption_sk, &powers, rng);
+
+        assert!(proof.verify(com_f_poly, index, &long_cipher, &powers));
+        assert!(long_cipher.check_encrypted_sum::<{ MAX_BITS }>(&short_ciphers));
+    }
+}

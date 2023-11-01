@@ -8,11 +8,8 @@ pub mod commit;
 pub mod dleq;
 pub mod encrypt;
 pub mod hash;
+#[cfg(test)]
+mod tests;
 
 #[cfg(feature = "parallel")]
 use rayon as _;
-
-#[cfg(test)]
-mod test {
-    use criterion as _;
-}
