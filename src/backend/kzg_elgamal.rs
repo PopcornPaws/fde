@@ -36,7 +36,7 @@ impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
 
         for eval in evaluations {
             let split_eval = SplitScalar::from(*eval);
-            let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(&encryption_pk, rng);
+            let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(encryption_pk, rng);
             let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
                 eval,
                 encryption_pk,
