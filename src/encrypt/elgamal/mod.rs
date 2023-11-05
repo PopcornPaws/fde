@@ -5,7 +5,7 @@ pub use split_scalar::SplitScalar;
 use utils::shift_scalar;
 
 use super::EncryptionEngine;
-use ark_ec::{AffineRepr, CurveGroup};//, ScalarMul, VariableBaseMSM as Msm};
+use ark_ec::{AffineRepr, CurveGroup}; //, ScalarMul, VariableBaseMSM as Msm};
 use ark_std::marker::PhantomData;
 use ark_std::ops::{Add, Mul};
 use ark_std::rand::Rng;

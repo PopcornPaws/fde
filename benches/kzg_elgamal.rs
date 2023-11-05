@@ -1,6 +1,6 @@
-use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine};
+use ark_bls12_381::Bls12_381 as BlsCurve;
 use ark_ec::pairing::Pairing;
-use ark_ec::{AffineRepr, CurveGroup, Group};
+use ark_ec::{CurveGroup, Group};
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};

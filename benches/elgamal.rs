@@ -1,18 +1,43 @@
-const N: usize = 4096;
+use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine};
+use ark_ec::pairing::Pairing;
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::PrimeField;
+use ark_std::{test_rng, UniformRand};
+use criterion::{criterion_group, criterion_main, Criterion};
+use fdx::encrypt::EncryptionEngine;
+
+// TODO do this for multiple ciphers in parallel
+const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fdx::encrypt::elgamal::MAX_BITS + 1;
+
+type Scalar = <BlsCurve as Pairing>::ScalarField;
+type SplitScalar = fdx::encrypt::elgamal::SplitScalar<{ N }, Scalar>;
+type Elgamal = fdx::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 
 fn bench_elgamal(c: &mut Criterion) {
     let mut group = c.benchmark_group("split-elgamal");
 
+    let rng = &mut test_rng();
+    let scalar = Scalar::rand(rng);
+    let split_scalar = SplitScalar::from(scalar);
+    let encryption_sk = Scalar::rand(rng);
+    let encryption_pk = (G1Affine::generator() * encryption_sk).into_affine();
+
     group.bench_function("encrypt-scalars", |b| {
         b.iter(|| {
-            todo!();
-        }
+            split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
+        })
     });
 
+    let (short_ciphers, randomness) = split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
+    let long_cipher = <Elgamal as EncryptionEngine>::encrypt_with_randomness(
+        &scalar,
+        &encryption_pk,
+        &randomness,
+    );
     group.bench_function("verify-split-encryption", |b| {
         b.iter(|| {
-            todo!();
-        }
+            assert!(long_cipher.check_encrypted_sum(&short_ciphers));
+        })
     });
 
     group.finish()
