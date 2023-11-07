@@ -6,17 +6,17 @@ use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain, Polynomia
 use ark_std::rand::Rng;
 use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
-use fdx::commit::kzg::Powers;
-use fdx::encrypt::elgamal::ExponentialElgamal;
-use fdx::encrypt::EncryptionEngine;
+use fde::commit::kzg::Powers;
+use fde::encrypt::elgamal::ExponentialElgamal;
+use fde::encrypt::EncryptionEngine;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 type Elgamal = ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type UniPoly = DensePolynomial<Scalar>;
-type Proof = fdx::backend::kzg_elgamal_slow::Proof<BlsCurve, UniPoly>;
-type Cipher = fdx::encrypt::elgamal::Cipher<<BlsCurve as Pairing>::G1>;
+type Proof = fde::backend::kzg_elgamal_slow::Proof<BlsCurve, UniPoly>;
+type Cipher = fde::encrypt::elgamal::Cipher<<BlsCurve as Pairing>::G1>;
 
 const D: usize = 32;
 const N: usize = 1;

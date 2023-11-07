@@ -6,14 +6,14 @@ use ark_poly::univariate::DensePolynomial;
 use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
 use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
-use fdx::commit::kzg::Powers;
+use fde::commit::kzg::Powers;
 
-const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fdx::encrypt::elgamal::MAX_BITS + 1;
+const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fde::encrypt::elgamal::MAX_BITS + 1;
 
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type UniPoly = DensePolynomial<Scalar>;
-type Proof = fdx::backend::kzg_elgamal::Proof<BlsCurve, UniPoly, sha3::Keccak256>;
-type PublicProofInput = fdx::backend::kzg_elgamal::PublicProofInput<{ N }, BlsCurve>;
+type Proof = fde::backend::kzg_elgamal::Proof<BlsCurve, UniPoly, sha3::Keccak256>;
+type PublicProofInput = fde::backend::kzg_elgamal::PublicProofInput<{ N }, BlsCurve>;
 
 const D: usize = 512;
 //const N: usize = 512;

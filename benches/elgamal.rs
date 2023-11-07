@@ -4,14 +4,14 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
-use fdx::encrypt::EncryptionEngine;
+use fde::encrypt::EncryptionEngine;
 
 // TODO do this for multiple ciphers in parallel
-const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fdx::encrypt::elgamal::MAX_BITS + 1;
+const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fde::encrypt::elgamal::MAX_BITS + 1;
 
 type Scalar = <BlsCurve as Pairing>::ScalarField;
-type SplitScalar = fdx::encrypt::elgamal::SplitScalar<{ N }, Scalar>;
-type Elgamal = fdx::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pairing>::G1>;
+type SplitScalar = fde::encrypt::elgamal::SplitScalar<{ N }, Scalar>;
+type Elgamal = fde::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 
 fn bench_elgamal(c: &mut Criterion) {
     let mut group = c.benchmark_group("split-elgamal");
