@@ -19,7 +19,6 @@ pub struct PublicProofInput<const N: usize, C: Pairing> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
-    pub domain: GeneralEvaluationDomain<C::ScalarField>,
 }
 
 impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
@@ -28,8 +27,6 @@ impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
         rng: &mut R,
     ) -> Self {
-        let domain = GeneralEvaluationDomain::new(evaluations.len()).unwrap();
-
         let mut random_encryption_points = Vec::with_capacity(evaluations.len());
         let mut ciphers = Vec::with_capacity(evaluations.len());
         let mut short_ciphers = Vec::with_capacity(evaluations.len());
@@ -51,7 +48,6 @@ impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
             ciphers,
             short_ciphers,
             random_encryption_points,
-            domain,
         }
     }
 }
@@ -156,7 +152,10 @@ where
             com_f_poly + neg_challenge_eval_commitment,
             C::G2Affine::generator(),
         );
-        let rhs_pairing = C::pairing(self.challenge_opening_proof, powers.g2[1] + neg_g_challenge);
+        let rhs_pairing = C::pairing(
+            self.challenge_opening_proof,
+            powers.g2_tau() + neg_g_challenge,
+        );
 
         let pairing_check = lhs_pairing == rhs_pairing;
 
@@ -193,7 +192,7 @@ mod test {
         let input = PublicProofInput::new(&evaluations.evals, &encryption_pk, rng);
         let proof = KzgElgamalProof::new(
             &f_poly,
-            &input.domain,
+            &domain,
             &input.ciphers,
             &input.random_encryption_points,
             &encryption_sk,
@@ -202,7 +201,7 @@ mod test {
         );
         assert!(proof.verify(
             com_f_poly,
-            &input.domain,
+            &domain,
             &input.ciphers,
             &input.random_encryption_points,
             encryption_pk,

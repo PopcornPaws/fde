@@ -15,14 +15,13 @@ type UniPoly = DensePolynomial<Scalar>;
 type Proof = fde::backend::kzg_elgamal::Proof<BlsCurve, UniPoly, sha3::Keccak256>;
 type PublicProofInput = fde::backend::kzg_elgamal::PublicProofInput<{ N }, BlsCurve>;
 
-const D: usize = 512;
-//const N: usize = 512;
+const D: usize = 32;
 
 fn bench_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("kzg-elgamal");
     let rng = &mut test_rng();
     let tau = Scalar::rand(rng);
-    let powers = Powers::<BlsCurve>::unsafe_setup(tau, D);
+    let powers = Powers::<BlsCurve>::unsafe_setup(tau, D + 1);
 
     let encryption_sk = Scalar::rand(rng);
     let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
@@ -39,7 +38,7 @@ fn bench_proof(c: &mut Criterion) {
         b.iter(|| {
             Proof::new(
                 &f_poly,
-                &input.domain,
+                &domain,
                 &input.ciphers,
                 &input.random_encryption_points,
                 &encryption_sk,
@@ -52,7 +51,7 @@ fn bench_proof(c: &mut Criterion) {
     group.bench_function("proof-vfy", |b| {
         let proof = Proof::new(
             &f_poly,
-            &input.domain,
+            &domain,
             &input.ciphers,
             &input.random_encryption_points,
             &encryption_sk,
@@ -62,7 +61,7 @@ fn bench_proof(c: &mut Criterion) {
         b.iter(|| {
             proof.verify(
                 com_f_poly,
-                &input.domain,
+                &domain,
                 &input.ciphers,
                 &input.random_encryption_points,
                 encryption_pk,

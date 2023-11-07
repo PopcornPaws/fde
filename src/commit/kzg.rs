@@ -14,7 +14,7 @@ impl<C: Pairing> Powers<C> {
         let mut g1 = Vec::new();
         let mut g2 = Vec::new();
         let mut exponent = C::ScalarField::one();
-        for _ in 0..=range {
+        for _ in 1..=range {
             g1.push((<C::G1Affine as AffineRepr>::generator() * exponent).into_affine());
             g2.push((<C::G2Affine as AffineRepr>::generator() * exponent).into_affine());
             exponent *= tau;
@@ -35,13 +35,21 @@ impl<C: Pairing> Powers<C> {
     ) -> C::G2 {
         Msm::msm_unchecked(&self.g2[0..poly.coeffs().len()], poly.coeffs())
     }
+
+    pub fn g1_tau(&self) -> C::G1Affine {
+        self.g1[1]
+    }
+
+    pub fn g2_tau(&self) -> C::G2Affine {
+        self.g2[1]
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use ark_bls12_381::{Bls12_381 as BlsCurve, G1Affine, G2Affine};
-    use ark_ec::{AffineRepr, CurveGroup};
+    use ark_bls12_381::Bls12_381 as BlsCurve;
+    use ark_ec::CurveGroup;
     use ark_poly::univariate::DensePolynomial;
     use ark_poly::Polynomial;
     use ark_std::One;
@@ -62,7 +70,7 @@ mod test {
         let com_g1 = powers.commit_g1(&poly);
         let com_g2 = powers.commit_g2(&poly);
 
-        assert_eq!(com_g1, (G1Affine::generator() * poly_tau).into_affine());
-        assert_eq!(com_g2, (G2Affine::generator() * poly_tau).into_affine());
+        assert_eq!(com_g1, (powers.g1[0] * poly_tau).into_affine());
+        assert_eq!(com_g2, (powers.g2[0] * poly_tau).into_affine());
     }
 }
