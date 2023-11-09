@@ -85,15 +85,18 @@ where
             .iter()
             .for_each(|cipher| hasher.update(&cipher.c1()));
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
-        let challenge_eval = f_poly.evaluate(&challenge);
+
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge)[0..random_encryption_points.len()];
+        //let challenge_eval = f_poly.evaluate(&challenge);
+        let challenge_eval: C::ScalarField = lagrange_evaluations.iter().sum();
+
 
         let d_poly = P::from_coefficients_slice(&[-challenge, C::ScalarField::one()]);
         let q_poly = &(f_poly + &P::from_coefficients_slice(&[-challenge_eval])) / &d_poly;
         let challenge_opening_proof = powers.commit_g1(&q_poly).into();
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
-        let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, &lagrange_evaluations);
+        let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, lagrange_evaluations);
 
         let dleq_proof = DleqProof::new(
             encryption_sk,
@@ -131,7 +134,8 @@ where
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
 
-        let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(challenge);
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge)[0..random_encryption_points.len()];
+        //let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(challenge);
         let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, &lagrange_evaluations);
 
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, &lagrange_evaluations);
@@ -173,6 +177,7 @@ mod test {
     use ark_std::{test_rng, UniformRand};
 
     const D: usize = 32;
+    const N: usize = 32;
 
     #[test]
     fn flow() {
@@ -193,8 +198,8 @@ mod test {
         let proof = KzgElgamalProof::new(
             &f_poly,
             &domain,
-            &input.ciphers,
-            &input.random_encryption_points,
+            &input.ciphers[0..N],
+            &input.random_encryption_points[0..N],
             &encryption_sk,
             &powers,
             rng,
@@ -202,8 +207,8 @@ mod test {
         assert!(proof.verify(
             com_f_poly,
             &domain,
-            &input.ciphers,
-            &input.random_encryption_points,
+            &input.ciphers[0..N],
+            &input.random_encryption_points[0..N],
             encryption_pk,
             &powers
         ));
