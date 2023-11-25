@@ -85,11 +85,8 @@ where
             .iter()
             .for_each(|cipher| hasher.update(&cipher.c1()));
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
-
-        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge)[0..random_encryption_points.len()];
-        //let challenge_eval = f_poly.evaluate(&challenge);
-        let challenge_eval: C::ScalarField = lagrange_evaluations.iter().sum();
-
+        let challenge_eval = f_poly.evaluate(&challenge);
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
 
         let d_poly = P::from_coefficients_slice(&[-challenge, C::ScalarField::one()]);
         let q_poly = &(f_poly + &P::from_coefficients_slice(&[-challenge_eval])) / &d_poly;
@@ -134,8 +131,7 @@ where
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
 
-        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge)[0..random_encryption_points.len()];
-        //let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(challenge);
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
         let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, &lagrange_evaluations);
 
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, &lagrange_evaluations);
@@ -171,16 +167,19 @@ where
 mod test {
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, KzgElgamalProof, PublicProofInput, Scalar, UniPoly};
+    use crate::interpolate::interpolate;
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
+    use ark_ff::Field;
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
     use ark_std::{test_rng, UniformRand};
 
-    const D: usize = 32;
-    const N: usize = 32;
+    const D: usize = 8;
+    const N: usize = 8;
 
     #[test]
     fn flow() {
+        debug_assert!(D >= N);
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng);
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, D);
@@ -189,15 +188,33 @@ mod test {
         let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
 
         let data: Vec<Scalar> = (0..D).map(|_| Scalar::rand(rng)).collect();
-        let domain = GeneralEvaluationDomain::new(data.len()).unwrap();
-        let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let f_poly: UniPoly = evaluations.interpolate_by_ref();
-        let com_f_poly = powers.commit_g1(&f_poly);
+        let input = PublicProofInput::new(&data, &encryption_pk, rng);
 
-        let input = PublicProofInput::new(&evaluations.evals, &encryption_pk, rng);
+        let general_domain = GeneralEvaluationDomain::new(data.len()).unwrap();
+        let domain: Vec<Scalar> = general_domain.elements().collect();
+        let evaluations = Evaluations::from_vec_and_domain(data, general_domain);
+        // TODO
+        //let f_poly: UniPoly = evaluations.interpolate_by_ref();
+        //let com_f_poly = powers.commit_g1(&f_poly);
+        
+        match general_domain {
+            GeneralEvaluationDomain::Radix2(mut rd) => {
+                rd.size = N as u64;
+                rd.log_size_of_group = rd.size.trailing_zeros();
+                rd.size_as_field_element = Scalar::from(rd.size);
+                rd.size_inv = rd.size_as_field_element.inverse().unwrap();
+            }
+            _ => panic!(),
+        }
+
+        let sub_data = &evaluations.evals[0..N];
+        let sub_domain = &domain[0..N];
+        let f_s_poly: UniPoly = interpolate(sub_domain, sub_data);
+        let com_f_s_poly = powers.commit_g1(&f_s_poly);
+
         let proof = KzgElgamalProof::new(
-            &f_poly,
-            &domain,
+            &f_s_poly,
+            &general_domain,
             &input.ciphers[0..N],
             &input.random_encryption_points[0..N],
             &encryption_sk,
@@ -205,8 +222,8 @@ mod test {
             rng,
         );
         assert!(proof.verify(
-            com_f_poly,
-            &domain,
+            com_f_s_poly,
+            &general_domain,
             &input.ciphers[0..N],
             &input.random_encryption_points[0..N],
             encryption_pk,

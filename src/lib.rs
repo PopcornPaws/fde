@@ -8,5 +8,6 @@ pub mod commit;
 pub mod dleq;
 pub mod encrypt;
 pub mod hash;
+pub mod interpolate;
 #[cfg(test)]
 mod tests;
