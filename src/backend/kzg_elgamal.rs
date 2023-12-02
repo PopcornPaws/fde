@@ -11,19 +11,23 @@ use ark_poly::univariate::DensePolynomial;
 use ark_poly::EvaluationDomain;
 use ark_poly::Polynomial;
 use ark_poly_commit::DenseUVPolynomial;
+use ark_std::collections::HashMap;
 use ark_std::marker::PhantomData;
 use ark_std::ops::Neg;
 use ark_std::rand::Rng;
 use ark_std::One;
 use digest::Digest;
 
-pub struct PublicProofInput<const N: usize, C: Pairing> {
+type IndexMap<T> = HashMap<T, usize>;
+
+pub struct PublicInput<const N: usize, C: Pairing> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
+    pub domain: GeneralEvaluationDomain<C::ScalarField>,
 }
 
-impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
+impl<const N: usize, C: Pairing> PublicInput<N, C> {
     pub fn new<R: Rng>(
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
@@ -46,31 +50,48 @@ impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
             short_ciphers.push(sc);
         }
 
+        let domain = GeneralEvaluationDomain::new(evaluations.len()).expect("valid length");
+
         Self {
             ciphers,
             short_ciphers,
             random_encryption_points,
+            domain,
         }
     }
 
+    pub fn index_map(&self) -> IndexMap<C::ScalarField> {
+        self.domain
+            .elements()
+            .enumerate()
+            .map(|(i, e)| (e, i))
+            .collect()
+    }
+
     pub fn subset(&self, indices: &[usize]) -> Self {
-        let mut sub_ciphers = Vec::with_capacity(indices.len());
-        let mut sub_short_ciphers = Vec::with_capacity(indices.len());
-        let mut sub_random_encryption_points = Vec::with_capacity(indices.len());
-        for index in indices {
-            sub_ciphers.push(self.ciphers[*index]);
-            sub_short_ciphers.push(self.short_ciphers[*index]);
-            sub_random_encryption_points.push(self.random_encryption_points[*index]);
+        let size = indices.len();
+        debug_assert!(self.domain.size() >= size);
+        let domain = GeneralEvaluationDomain::new(size).expect("valid domain");
+
+        let mut ciphers = Vec::with_capacity(size);
+        let mut short_ciphers = Vec::with_capacity(size);
+        let mut random_encryption_points = Vec::with_capacity(size);
+        for &index in indices {
+            ciphers.push(self.ciphers[index]);
+            short_ciphers.push(self.short_ciphers[index]);
+            random_encryption_points.push(self.random_encryption_points[index]);
         }
+
         Self {
-            ciphers: sub_ciphers,
-            short_ciphers: sub_short_ciphers,
-            random_encryption_points: sub_random_encryption_points,
+            ciphers,
+            short_ciphers,
+            random_encryption_points,
+            domain,
         }
     }
 }
 
-pub struct Proof<C: Pairing, D> {
+pub struct Proof<const N: usize, C: Pairing, D> {
     challenge_eval_commitment: C::G1Affine,
     challenge_opening_proof: C::G1Affine,
     dleq_proof: DleqProof<C::G1, D>,
@@ -79,7 +100,7 @@ pub struct Proof<C: Pairing, D> {
     _digest: PhantomData<D>,
 }
 
-impl<C, D> Proof<C, D>
+impl<const N: usize, C, D> Proof<N, C, D>
 where
     C: Pairing,
     C::G1Affine: Neg<Output = C::G1Affine>,
@@ -89,25 +110,20 @@ where
     pub fn new<R: Rng>(
         f_poly: &DensePolynomial<C::ScalarField>,
         f_s_poly: &DensePolynomial<C::ScalarField>,
-        domain: &GeneralEvaluationDomain<C::ScalarField>,
-        ciphers: &[Cipher<C::G1>],
-        random_encryption_points: &[C::G1Affine],
         encryption_sk: &C::ScalarField,
+        input: &PublicInput<N, C>,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
         let mut hasher = Hasher::<D>::new();
-        ciphers
+        input
+            .ciphers
             .iter()
             .for_each(|cipher| hasher.update(&cipher.c1()));
+
+        // challenge and KZG proof
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
         let challenge_eval = f_s_poly.evaluate(&challenge);
-        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
-        let f_q_poly = (f_poly - f_s_poly)
-            .divide_by_vanishing_poly(*domain)
-            .unwrap()
-            .0;
-        let com_f_q_poly = powers.commit_g1(&f_q_poly).into();
 
         let d_poly = DensePolynomial::from_coefficients_slice(&[-challenge, C::ScalarField::one()]);
         let q_poly =
@@ -115,7 +131,17 @@ where
         let challenge_opening_proof = powers.commit_g1(&q_poly).into();
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
-        let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, lagrange_evaluations);
+        // subset polynomial KZG commitment
+        let f_q_poly = (f_poly - f_s_poly)
+            .divide_by_vanishing_poly(input.domain)
+            .unwrap()
+            .0;
+        let com_f_q_poly = powers.commit_g1(&f_q_poly).into();
+
+        // DLEQ proof
+        let lagrange_evaluations = &input.domain.evaluate_all_lagrange_coefficients(challenge);
+        let q_point: C::G1 =
+            Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations);
 
         let dleq_proof = DleqProof::new(
             encryption_sk,
@@ -138,14 +164,13 @@ where
         &self,
         com_f_poly: C::G1,
         com_f_s_poly: C::G1,
-        domain: &GeneralEvaluationDomain<C::ScalarField>,
-        ciphers: &[Cipher<C::G1>],
-        random_encryption_points: &[C::G1Affine],
         encryption_pk: C::G1Affine,
+        input: &PublicInput<N, C>,
         powers: &Powers<C>,
     ) -> bool {
         let mut hasher = Hasher::<D>::new();
-        let c1_points: Vec<C::G1Affine> = ciphers
+        let c1_points: Vec<C::G1Affine> = input
+            .ciphers
             .iter()
             .map(|cipher| {
                 let c1 = cipher.c1();
@@ -155,20 +180,20 @@ where
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
 
-        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
-        let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
-
+        // polynomial division check via vanishing polynomial
+        let vanishing_poly = DensePolynomial::from(input.domain.vanishing_polynomial());
         let com_vanishing_poly = powers.commit_g2(&vanishing_poly);
         let lhs_pairing = C::pairing(self.com_f_q_poly, com_vanishing_poly);
         let rhs_pairing = C::pairing(com_f_poly + com_f_s_poly.neg(), C::G2Affine::generator());
-        let vanishing_pairing_check = dbg!(lhs_pairing == rhs_pairing);
+        let subset_pairing_check = lhs_pairing == rhs_pairing;
 
-        let q_point: C::G1 = Msm::msm_unchecked(random_encryption_points, lagrange_evaluations);
-        let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, lagrange_evaluations);
-
-        let neg_challenge_eval_commitment = self.challenge_eval_commitment.neg();
-        let q_star = ct_point + neg_challenge_eval_commitment;
-
+        // DLEQ check
+        let lagrange_evaluations = &input.domain.evaluate_all_lagrange_coefficients(challenge);
+        let q_point: C::G1 =
+            Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations); // Q
+        let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, lagrange_evaluations); // C_t
+                                                                                    //let challenge_eval_commitment_neg = self.challenge_eval_commitment.neg();
+        let q_star = ct_point - self.challenge_eval_commitment; // Q* = C_t / C_alpha
         let dleq_check = self.dleq_proof.verify(
             q_point.into(),
             q_star,
@@ -176,31 +201,29 @@ where
             encryption_pk.into(),
         );
 
+        // KZG pairing check
         let neg_g_challenge = (C::G2Affine::generator() * challenge).into_affine().neg();
-
         let lhs_pairing = C::pairing(
-            com_f_s_poly + neg_challenge_eval_commitment,
+            com_f_s_poly - self.challenge_eval_commitment,
             C::G2Affine::generator(),
         );
         let rhs_pairing = C::pairing(
             self.challenge_opening_proof,
             powers.g2_tau() + neg_g_challenge,
         );
-
         let pairing_check = lhs_pairing == rhs_pairing;
 
-        dleq_check && pairing_check && vanishing_pairing_check
+        dleq_check && pairing_check && subset_pairing_check
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::commit::kzg::Powers;
-    use crate::tests::{BlsCurve, KzgElgamalProof, PublicProofInput, Scalar, UniPoly};
+    use crate::tests::{BlsCurve, KzgElgamalProof, PublicInput, Scalar, UniPoly};
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
-    use ark_std::collections::HashMap;
     use ark_std::{test_rng, UniformRand};
 
     const DATA_SIZE: usize = 64;
@@ -208,37 +231,33 @@ mod test {
 
     #[test]
     fn flow() {
-        debug_assert!(
-            DATA_SIZE >= SUBSET_SIZE,
-            "subset size cannot be greater than the data size"
-        );
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
 
+        // Server's (elphemeral?) encryption key for this session
         let encryption_sk = Scalar::rand(rng);
         let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
 
+        // Generate random data and public inputs (encrypted data, etc)
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
-        let input = PublicProofInput::new(&data, &encryption_pk, rng);
+        let input = PublicInput::new(&data, &encryption_pk, rng);
 
-        let general_domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
-        let evaluations = Evaluations::from_vec_and_domain(data, general_domain);
+        // Interpolate original polynomial and compute its KZG commitment.
+        // This is performed only once by the server
+        let evaluations = Evaluations::from_vec_and_domain(data, input.domain);
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let com_f_poly = powers.commit_g1(&f_poly);
 
-        let domain_indices: HashMap<Scalar, usize> = evaluations
-            .domain()
-            .elements()
-            .enumerate()
-            .map(|(i, e)| (e, i))
-            .collect();
+        let index_map = input.index_map();
 
+        // get subdomain with size suitable for interpolating a polynomial with SUBSET_SIZE
+        // coefficients
         let sub_domain = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
         let sub_indices = sub_domain
             .elements()
-            .map(|elem| *domain_indices.get(&elem).unwrap())
+            .map(|elem| *index_map.get(&elem).unwrap())
             .collect::<Vec<usize>>();
         let sub_data = sub_indices
             .iter()
@@ -250,27 +269,11 @@ mod test {
 
         let sub_input = input.subset(&sub_indices);
 
-        let proof = KzgElgamalProof::new(
-            &f_poly,
-            &f_s_poly,
-            &sub_domain,
-            &sub_input.ciphers,
-            &sub_input.random_encryption_points,
-            &encryption_sk,
-            &powers,
-            rng,
-        );
-        assert!(proof.verify(
-            com_f_poly,
-            com_f_s_poly,
-            &sub_domain,
-            &sub_input.ciphers,
-            &sub_input.random_encryption_points,
-            encryption_pk,
-            &powers
-        ));
+        let proof =
+            KzgElgamalProof::new(&f_poly, &f_s_poly, &encryption_sk, &sub_input, &powers, rng);
+        assert!(proof.verify(com_f_poly, com_f_s_poly, encryption_pk, &sub_input, &powers));
 
-        for (cipher, short_cipher) in input.ciphers.iter().zip(&input.short_ciphers) {
+        for (cipher, short_cipher) in sub_input.ciphers.iter().zip(&sub_input.short_ciphers) {
             assert!(cipher.check_encrypted_sum(short_cipher));
         }
     }
