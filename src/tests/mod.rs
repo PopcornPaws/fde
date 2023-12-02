@@ -13,6 +13,6 @@ pub type UniPoly = DensePolynomial<Scalar>;
 
 pub type Elgamal = crate::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 pub type PublicProofInput = crate::backend::kzg_elgamal::PublicProofInput<{ N }, BlsCurve>;
-pub type KzgElgamalProof = crate::backend::kzg_elgamal::Proof<BlsCurve, UniPoly, Keccak256>;
+pub type KzgElgamalProof = crate::backend::kzg_elgamal::Proof<BlsCurve, Keccak256>;
 pub type KzgElgamalSlowProof = crate::backend::kzg_elgamal_slow::Proof<BlsCurve, UniPoly>;
 pub type DleqProof = crate::dleq::Proof<<BlsCurve as Pairing>::G1, Keccak256>;
