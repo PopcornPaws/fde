@@ -226,15 +226,15 @@ mod test {
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
     use ark_std::{test_rng, UniformRand};
 
-    const DATA_SIZE: usize = 64;
-    const SUBSET_SIZE: usize = 32;
+    const DATA_SIZE: usize = 4096;
+    const SUBSET_SIZE: usize = 4096;
 
     #[test]
     fn flow() {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE + 1); // generate powers of tau size DATA_SIZE
 
         // Server's (elphemeral?) encryption key for this session
         let encryption_sk = Scalar::rand(rng);

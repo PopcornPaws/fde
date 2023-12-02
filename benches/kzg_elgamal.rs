@@ -8,67 +8,69 @@ use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
 use fde::commit::kzg::Powers;
 
+const DATA_LOG_SIZE: usize = 12; // 4096 = 2^12
 const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fde::encrypt::elgamal::MAX_BITS + 1;
 
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type UniPoly = DensePolynomial<Scalar>;
-type Proof = fde::backend::kzg_elgamal::Proof<BlsCurve, UniPoly, sha3::Keccak256>;
-type PublicProofInput = fde::backend::kzg_elgamal::PublicProofInput<{ N }, BlsCurve>;
-
-const D: usize = 32;
+type Proof = fde::backend::kzg_elgamal::Proof<{ N }, BlsCurve, sha3::Keccak256>;
+type PublicInput = fde::backend::kzg_elgamal::PublicInput<{ N }, BlsCurve>;
 
 fn bench_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("kzg-elgamal");
+
+    let data_size = 1 << DATA_LOG_SIZE;
+    assert_eq!(data_size, 4096);
+
     let rng = &mut test_rng();
     let tau = Scalar::rand(rng);
-    let powers = Powers::<BlsCurve>::unsafe_setup(tau, D + 1);
+    let powers = Powers::<BlsCurve>::unsafe_setup(tau, data_size + 1);
 
     let encryption_sk = Scalar::rand(rng);
     let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
 
-    let data: Vec<Scalar> = (0..D).map(|_| Scalar::rand(rng)).collect();
-    let domain = GeneralEvaluationDomain::new(data.len()).unwrap();
-    let evaluations = Evaluations::from_vec_and_domain(data, domain);
+    let data: Vec<Scalar> = (0..data_size).map(|_| Scalar::rand(rng)).collect();
+    let input = PublicInput::new(&data, &encryption_pk, rng);
+
+    let evaluations = Evaluations::from_vec_and_domain(data, input.domain);
     let f_poly: UniPoly = evaluations.interpolate_by_ref();
     let com_f_poly = powers.commit_g1(&f_poly);
 
-    let input = PublicProofInput::new(&evaluations.evals, &encryption_pk, rng);
+    let index_map = input.index_map();
 
-    group.bench_function("proof-gen", |b| {
-        b.iter(|| {
-            Proof::new(
-                &f_poly,
-                &domain,
-                &input.ciphers,
-                &input.random_encryption_points,
-                &encryption_sk,
-                &powers,
-                rng,
-            );
-        })
-    });
+    for i in 0..=12 {
+        let subset_size = 1 << i;
+        let proof_gen_name = format!("proof-gen-{}", subset_size);
+        let proof_vfy_name = format!("proof-vfy-{}", subset_size);
 
-    group.bench_function("proof-vfy", |b| {
-        let proof = Proof::new(
-            &f_poly,
-            &domain,
-            &input.ciphers,
-            &input.random_encryption_points,
-            &encryption_sk,
-            &powers,
-            rng,
-        );
-        b.iter(|| {
-            proof.verify(
-                com_f_poly,
-                &domain,
-                &input.ciphers,
-                &input.random_encryption_points,
-                encryption_pk,
-                &powers,
-            );
-        })
-    });
+        let sub_domain = GeneralEvaluationDomain::new(subset_size).unwrap();
+        let sub_indices = sub_domain
+            .elements()
+            .map(|elem| *index_map.get(&elem).unwrap())
+            .collect::<Vec<usize>>();
+        let sub_data = sub_indices
+            .iter()
+            .map(|&i| evaluations.evals[i])
+            .collect::<Vec<Scalar>>();
+        let sub_evaluations = Evaluations::from_vec_and_domain(sub_data, sub_domain);
+        let f_s_poly: UniPoly = sub_evaluations.interpolate_by_ref();
+        let com_f_s_poly = powers.commit_g1(&f_s_poly);
+
+        let sub_input = input.subset(&sub_indices);
+
+        group.bench_function(&proof_gen_name, |b| {
+            b.iter(|| {
+                Proof::new(&f_poly, &f_s_poly, &encryption_sk, &sub_input, &powers, rng);
+            })
+        });
+
+        group.bench_function(&proof_vfy_name, |b| {
+            let proof = Proof::new(&f_poly, &f_s_poly, &encryption_sk, &sub_input, &powers, rng);
+            b.iter(|| {
+                assert!(proof.verify(com_f_poly, com_f_s_poly, encryption_pk, &sub_input, &powers))
+            })
+        });
+    }
 
     group.finish();
 }
