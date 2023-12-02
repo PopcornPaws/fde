@@ -50,6 +50,22 @@ impl<const N: usize, C: Pairing> PublicProofInput<N, C> {
             random_encryption_points,
         }
     }
+
+    pub fn subset(&self, indices: &[usize]) -> Self {
+        let mut sub_ciphers = Vec::with_capacity(indices.len());
+        let mut sub_short_ciphers = Vec::with_capacity(indices.len());
+        let mut sub_random_encryption_points = Vec::with_capacity(indices.len());
+        for index in indices {
+            sub_ciphers.push(self.ciphers[*index]);
+            sub_short_ciphers.push(self.short_ciphers[*index]);
+            sub_random_encryption_points.push(self.random_encryption_points[*index]);
+        }
+        Self {
+            ciphers: sub_ciphers,
+            short_ciphers: sub_short_ciphers,
+            random_encryption_points: sub_random_encryption_points,
+        }
+    }
 }
 
 pub struct Proof<C: Pairing, P, D> {
@@ -167,65 +183,73 @@ where
 mod test {
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, KzgElgamalProof, PublicProofInput, Scalar, UniPoly};
-    use crate::interpolate::interpolate;
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
-    use ark_ff::Field;
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
+    use ark_std::collections::HashMap;
     use ark_std::{test_rng, UniformRand};
 
-    const D: usize = 8;
-    const N: usize = 8;
+    const DATA_SIZE: usize = 64;
+    const SUBSET_SIZE: usize = 32;
 
     #[test]
     fn flow() {
-        debug_assert!(D >= N);
+        debug_assert!(
+            DATA_SIZE >= SUBSET_SIZE,
+            "subset size cannot be greater than the data size"
+        );
+        // KZG setup simulation
         let rng = &mut test_rng();
-        let tau = Scalar::rand(rng);
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, D);
+        let tau = Scalar::rand(rng); // "secret" tau
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
 
         let encryption_sk = Scalar::rand(rng);
         let encryption_pk = (<BlsCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
 
-        let data: Vec<Scalar> = (0..D).map(|_| Scalar::rand(rng)).collect();
+        let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let input = PublicProofInput::new(&data, &encryption_pk, rng);
 
-        let general_domain = GeneralEvaluationDomain::new(data.len()).unwrap();
-        let domain: Vec<Scalar> = general_domain.elements().collect();
+        let general_domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data, general_domain);
-        // TODO
-        //let f_poly: UniPoly = evaluations.interpolate_by_ref();
-        //let com_f_poly = powers.commit_g1(&f_poly);
-        
-        match general_domain {
-            GeneralEvaluationDomain::Radix2(mut rd) => {
-                rd.size = N as u64;
-                rd.log_size_of_group = rd.size.trailing_zeros();
-                rd.size_as_field_element = Scalar::from(rd.size);
-                rd.size_inv = rd.size_as_field_element.inverse().unwrap();
-            }
-            _ => panic!(),
-        }
+        let f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_poly = powers.commit_g1(&f_poly);
 
-        let sub_data = &evaluations.evals[0..N];
-        let sub_domain = &domain[0..N];
-        let f_s_poly: UniPoly = interpolate(sub_domain, sub_data);
+        let domain_indices: HashMap<Scalar, usize> = evaluations
+            .domain()
+            .elements()
+            .enumerate()
+            .map(|(i, e)| (e, i))
+            .collect();
+
+        let sub_domain = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
+        let sub_indices = sub_domain
+            .elements()
+            .map(|elem| *domain_indices.get(&elem).unwrap())
+            .collect::<Vec<usize>>();
+        let sub_data = sub_indices
+            .iter()
+            .map(|&i| evaluations.evals[i])
+            .collect::<Vec<Scalar>>();
+        let sub_evaluations = Evaluations::from_vec_and_domain(sub_data, sub_domain);
+        let f_s_poly: UniPoly = sub_evaluations.interpolate_by_ref();
         let com_f_s_poly = powers.commit_g1(&f_s_poly);
+
+        let sub_input = input.subset(&sub_indices);
 
         let proof = KzgElgamalProof::new(
             &f_s_poly,
-            &general_domain,
-            &input.ciphers[0..N],
-            &input.random_encryption_points[0..N],
+            &sub_domain,
+            &sub_input.ciphers,
+            &sub_input.random_encryption_points,
             &encryption_sk,
             &powers,
             rng,
         );
         assert!(proof.verify(
             com_f_s_poly,
-            &general_domain,
-            &input.ciphers[0..N],
-            &input.random_encryption_points[0..N],
+            &sub_domain,
+            &sub_input.ciphers,
+            &sub_input.random_encryption_points,
             encryption_pk,
             &powers
         ));

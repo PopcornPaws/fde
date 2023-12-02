@@ -40,10 +40,10 @@ pub fn interpolate<S: PrimeField>(x: &[S], y: &[S]) -> DensePolynomial<S> {
 mod test {
     use super::*;
     use crate::tests::Scalar;
-    use ark_poly::{Polynomial, EvaluationDomain, Evaluations, GeneralEvaluationDomain};
-    use ark_std::{One, Zero};
+    use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain, Polynomial};
     use ark_std::ops::Neg;
     use ark_std::{test_rng, UniformRand};
+    use ark_std::{One, Zero};
 
     #[test]
     fn interpolation_works() {
@@ -62,10 +62,7 @@ mod test {
         );
 
         // simple first order polynomial (y = x)
-        let x = vec![
-            Scalar::from(1_u64),
-            Scalar::from(2_u64),
-        ];
+        let x = vec![Scalar::from(1_u64), Scalar::from(2_u64)];
 
         let y = x.clone();
         let poly = interpolate(&x, &y);
@@ -75,11 +72,17 @@ mod test {
         let x = vec![Scalar::from(2_u64), Scalar::from(3_u64)];
         let y = vec![Scalar::from(51_u64), Scalar::from(83_u64)];
         let poly = interpolate(&x, &y);
-        assert_eq!(poly.coeffs, &[Scalar::from(13_u64).neg(), Scalar::from(32_u64)]);
+        assert_eq!(
+            poly.coeffs,
+            &[Scalar::from(13_u64).neg(), Scalar::from(32_u64)]
+        );
 
         assert_eq!(poly.evaluate(&x[0]), y[0]);
         assert_eq!(poly.evaluate(&x[1]), y[1]);
-        assert_eq!(poly.evaluate(&Scalar::from(100_u64)), Scalar::from(3187_u64));
+        assert_eq!(
+            poly.evaluate(&Scalar::from(100_u64)),
+            Scalar::from(3187_u64)
+        );
 
         // fourth order polynomial
         // y = x^4 + 0 * x^3 + 3 * x^2 + 2 * x + 14
@@ -100,8 +103,13 @@ mod test {
             Scalar::from(1430_u64),
         ];
         let poly = interpolate(&x, &y);
-        x.iter().zip(y).for_each(|(x, y)| assert_eq!(poly.evaluate(x), y));
-        poly.coeffs.into_iter().zip([14u64, 2, 3, 0, 1]).for_each(|(coeff, s)| assert_eq!(coeff, Scalar::from(s)));
+        x.iter()
+            .zip(y)
+            .for_each(|(x, y)| assert_eq!(poly.evaluate(x), y));
+        poly.coeffs
+            .into_iter()
+            .zip([14u64, 2, 3, 0, 1])
+            .for_each(|(coeff, s)| assert_eq!(coeff, Scalar::from(s)));
     }
 
     #[test]
