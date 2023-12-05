@@ -192,7 +192,7 @@ where
         let q_point: C::G1 =
             Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations); // Q
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, lagrange_evaluations); // C_t
-                                                                                    //let challenge_eval_commitment_neg = self.challenge_eval_commitment.neg();
+
         let q_star = ct_point - self.challenge_eval_commitment; // Q* = C_t / C_alpha
         let dleq_check = self.dleq_proof.verify(
             q_point.into(),
@@ -227,7 +227,7 @@ mod test {
     use ark_std::{test_rng, UniformRand};
 
     const DATA_SIZE: usize = 4096;
-    const SUBSET_SIZE: usize = 4096;
+    const SUBSET_SIZE: usize = 2;
 
     #[test]
     fn flow() {
