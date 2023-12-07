@@ -1,4 +1,6 @@
 // NOTE code mostly taken from https://github.com/roynalnaruto/range_proof
+mod utils;
+
 use crate::commit::kzg::Powers;
 use ark_ec::pairing::Pairing;
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
