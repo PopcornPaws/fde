@@ -9,5 +9,6 @@ pub mod dleq;
 pub mod encrypt;
 pub mod hash;
 pub mod interpolate;
+pub mod range_proof;
 #[cfg(test)]
 mod tests;
