@@ -239,6 +239,61 @@ pub fn compute_tau_12_polys<S: PrimeField>(tau: S) -> (DensePolynomial<S>, Dense
     )
 }
 
+pub fn create_witness<S: PrimeField>(
+    polynomial: &DensePolynomial<S>,
+    point: S,
+) -> DensePolynomial<S> {
+    let divisor = DensePolynomial::<S>::from_coefficients_slice(&[-point, S::one()]);
+
+    polynomial / &divisor
+}
+
+pub fn create_aggregate_witness<S: PrimeField>(
+    polynomials: &[DensePolynomial<S>],
+    point: S,
+    challenge: S,
+) -> DensePolynomial<S> {
+    let mut power = S::one();
+    let mut result = DensePolynomial::<S>::from_coefficients_slice(&[S::zero()]);
+
+    for polynomial in polynomials {
+        let tmp_polynomial = polynomial * &DensePolynomial::<S>::from_coefficients_slice(&[power]);
+        result += &tmp_polynomial;
+        power *= challenge;
+    }
+
+    create_witness(&result, point)
+}
+
+pub fn aggregate_commitments<C: CurveGroup>(
+    commitments: &[C::Affine],
+    aggregation_challenge: C::ScalarField,
+) -> C::Affine {
+    let mut powers = C::ScalarField::one();
+    let mut result = C::Affine::zero();
+
+    for commitment in commitments {
+        let intermediate_comm = commitment * powers;
+        result += intermediate_comm;
+        powers = powers * aggregation_challenge;
+    }
+
+    result.into()
+}
+
+pub fn aggregate_values<S: PrimeField>(values: &[Fr], aggregation_challenge: S) -> S {
+    let mut powers = S::one();
+    let mut result = S::zero();
+
+    for value in values {
+        let intermediate_value = value * powers;
+        result += intermediate_value;
+        powers = powers * aggregation_challenge;
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
