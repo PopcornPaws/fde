@@ -3,11 +3,36 @@ mod utils;
 use utils::*;
 
 use crate::commit::kzg::{Kzg, Powers};
+use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
 use ark_ec::CurveGroup;
+use ark_ff::{BigInteger, PrimeField};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
+use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
-use ark_std::{One, UniformRand, Zero};
+use ark_std::{UniformRand, Zero};
+use digest::Digest;
+
+pub struct Transcript<D, S> {
+    pub seed: S,
+    _digest: PhantomData<D>,
+}
+
+impl<D: Digest, S: PrimeField> Transcript<D, S> {
+    pub fn new(seed: S) -> Self {
+        Self {
+            seed,
+            _digest: PhantomData,
+        }
+    }
+
+    pub fn scalar(&self, label: &[u8]) -> S {
+        let mut hasher = Hasher::<D>::new();
+        hasher.update(&self.seed.into_bigint().to_bytes_le());
+        hasher.update(&label);
+        S::from_le_bytes_mod_order(&hasher.finalize())
+    }
+}
 
 pub struct Evaluations<S> {
     pub g: S,
@@ -26,29 +51,33 @@ pub struct Proofs<C: Pairing> {
     pub shifted: C::G1Affine,
 }
 
-pub struct RangeProof<C: Pairing> {
+pub struct RangeProof<C: Pairing, D> {
     pub evaluations: Evaluations<C::ScalarField>,
     pub commitments: Commitments<C>,
     pub proofs: Proofs<C>,
-    // TODO transcript?
-    // tau
-    // rho
-    // aggregation_chalenge
+    _digest: PhantomData<D>,
 }
 
-impl<C: Pairing> RangeProof<C> {
+impl<C: Pairing, D: Digest> RangeProof<C, D> {
     // prove 0 <= z < 2^n
     pub fn new<R: Rng>(z: C::ScalarField, n: usize, powers: &Powers<C>, rng: &mut R) -> Self {
         let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n).expect("valid domain");
         let domain_2n =
             GeneralEvaluationDomain::<C::ScalarField>::new(2 * n).expect("valid domain");
 
+        let mut hasher = Hasher::<D>::new();
+        hasher.update(&n.to_le_bytes());
+        hasher.update(&domain.group_gen().into_bigint().to_bytes_le());
+        let seed = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
+        let transcript = Transcript::<D, C::ScalarField>::new(seed);
+        let tau = transcript.scalar(b"tau");
+        let rho = transcript.scalar(b"rho");
+        let aggregation_challenge = transcript.scalar(b"aggregation_challenge");
+
         // random scalars
         let r = C::ScalarField::rand(rng);
         let alpha = C::ScalarField::rand(rng);
         let beta = C::ScalarField::rand(rng);
-        let tau = C::ScalarField::rand(rng); // for aggregation
-        let aggregation_challenge = C::ScalarField::rand(rng);
 
         // compute all polynomials
         let f_poly = compute_f_poly(&domain, z, r);
@@ -64,7 +93,6 @@ impl<C: Pairing> RangeProof<C> {
         let g_commitment = powers.commit_g1(&g_poly);
         let q_commitment = powers.commit_g1(&q_poly);
 
-        let rho = C::ScalarField::rand(rng); // random eval point
         let rho_omega: C::ScalarField = rho * domain.group_gen();
         // evaluate g at rho
         let g_eval = g_poly.evaluate(&rho);
@@ -106,26 +134,29 @@ impl<C: Pairing> RangeProof<C> {
             evaluations,
             commitments,
             proofs,
+            _digest: PhantomData,
         }
     }
 
-    pub fn verify(
-        &self,
-        domain: &GeneralEvaluationDomain<C::ScalarField>,
-        powers: &Powers<C>,
-    ) -> bool {
-        // TODO transcript
-        let tau = C::ScalarField::one();
-        let rho = C::ScalarField::one();
-        let aggregation_challenge = C::ScalarField::one();
+    pub fn verify(&self, n: usize, powers: &Powers<C>) -> bool {
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n).expect("valid domain");
+
+        let mut hasher = Hasher::<D>::new();
+        hasher.update(&n.to_le_bytes());
+        hasher.update(&domain.group_gen().into_bigint().to_bytes_le());
+        let seed = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
+        let transcript = Transcript::<D, C::ScalarField>::new(seed);
+        let tau = transcript.scalar(b"tau");
+        let rho = transcript.scalar(b"rho");
+        let aggregation_challenge = transcript.scalar(b"aggregation_challenge");
 
         // calculate w_cap_commitment
         let w_cap_commitment =
-            compute_w_cap_commitment::<C::G1>(domain, self.commitments.f, self.commitments.q, rho);
+            compute_w_cap_commitment::<C::G1>(&domain, self.commitments.f, self.commitments.q, rho);
 
         // calculate w2(ρ) and w3(ρ)
         let (w1_part, w2_part, w3_part) = compute_w1_w2_w3_evals(
-            domain,
+            &domain,
             self.evaluations.g,
             self.evaluations.g_omega,
             rho,

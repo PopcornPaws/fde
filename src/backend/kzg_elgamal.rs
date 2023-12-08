@@ -21,6 +21,7 @@ pub struct PublicInput<const N: usize, C: Pairing> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
+    // TODO domain is not needed to be added here?
     pub domain: GeneralEvaluationDomain<C::ScalarField>,
 }
 

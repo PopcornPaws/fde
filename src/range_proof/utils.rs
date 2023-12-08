@@ -303,8 +303,8 @@ mod test {
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, Scalar};
     use ark_ec::pairing::Pairing;
-    use ark_poly::Polynomial;
     use ark_ff::Field;
+    use ark_poly::Polynomial;
     use ark_std::{test_rng, UniformRand};
     use ark_std::{One, Zero};
 
