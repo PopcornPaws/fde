@@ -119,7 +119,7 @@ where
         // challenge and KZG proof
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
         let challenge_eval = f_s_poly.evaluate(&challenge);
-        let challenge_opening_proof = Kzg::proof(&f_s_poly, challenge, challenge_eval, powers);
+        let challenge_opening_proof = Kzg::proof(f_s_poly, challenge, challenge_eval, powers);
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
         // subset polynomial KZG commitment

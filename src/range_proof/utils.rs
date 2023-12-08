@@ -202,6 +202,7 @@ pub fn compute_w1_w2_w3_evals<S: PrimeField>(
     (w1_eval, tau * w2_eval, tau * tau * w3_eval)
 }
 
+/* TODO can this be removed?
 pub fn compute_w_poly<S: PrimeField>(
     domain: &GeneralEvaluationDomain<S>,
     w1_poly: &DensePolynomial<S>,
@@ -214,6 +215,7 @@ pub fn compute_w_poly<S: PrimeField>(
     &(&(w1_poly + &(w2_poly * &poly_tau)) + &(w3_poly * &poly_tau_2))
         - &q_poly.mul_by_vanishing_poly(*domain)
 }
+*/
 
 pub fn compute_w2_w3_parts<S: PrimeField>(
     w2: &DensePolynomial<S>,

@@ -2,11 +2,12 @@
 mod utils;
 use utils::*;
 
-use crate::commit::kzg::Powers;
+use crate::commit::kzg::{Kzg, Powers};
 use ark_ec::pairing::Pairing;
+use ark_ec::CurveGroup;
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
 use ark_std::rand::Rng;
-use ark_std::UniformRand;
+use ark_std::{One, UniformRand, Zero};
 
 pub struct Evaluations<S> {
     pub g: S,
@@ -15,16 +16,20 @@ pub struct Evaluations<S> {
 }
 
 pub struct Commitments<C: Pairing> {
-    pub f: C::G1,
-    pub g: C::G1,
-    pub q: C::G1,
+    pub f: C::G1Affine,
+    pub g: C::G1Affine,
+    pub q: C::G1Affine,
+}
+
+pub struct Proofs<C: Pairing> {
+    pub aggregate: C::G1Affine,
+    pub shifted: C::G1Affine,
 }
 
 pub struct RangeProof<C: Pairing> {
     pub evaluations: Evaluations<C::ScalarField>,
     pub commitments: Commitments<C>,
-    pub aggregate_witness_commitment: C::G1,
-    pub shifted_witness_commitment: C::G1,
+    pub proofs: Proofs<C>,
     // TODO transcript?
     // tau
     // rho
@@ -72,13 +77,13 @@ impl<C: Pairing> RangeProof<C> {
 
         // compute witness for g(X) at ρw
         let shifted_witness_poly = create_witness(&g_poly, rho_omega);
-        let shifted_witness_commitment = powers.commit_g1(&shifted_witness_poly);
+        let shifted_proof = powers.commit_g1(&shifted_witness_poly);
 
         // compute aggregate witness for
         // g(X) at ρ, f(X) at ρ, w_cap(X) at ρ
         let aggregate_witness_poly =
             create_aggregate_witness(&[g_poly, w_cap_poly], rho, aggregation_challenge);
-        let aggregate_witness_commitment = powers.commit_g1(&aggregate_witness_poly);
+        let aggregate_proof = powers.commit_g1(&aggregate_witness_poly);
 
         let evaluations = Evaluations {
             g: g_eval,
@@ -87,20 +92,80 @@ impl<C: Pairing> RangeProof<C> {
         };
 
         let commitments = Commitments {
-            f: f_commitment,
-            g: g_commitment,
-            q: q_commitment,
+            f: f_commitment.into_affine(),
+            g: g_commitment.into_affine(),
+            q: q_commitment.into_affine(),
+        };
+
+        let proofs = Proofs {
+            aggregate: aggregate_proof.into_affine(),
+            shifted: shifted_proof.into_affine(),
         };
 
         Self {
             evaluations,
             commitments,
-            aggregate_witness_commitment,
-            shifted_witness_commitment,
+            proofs,
         }
     }
 
-    pub fn verify(&self) -> bool {
-        todo!()
+    pub fn verify(
+        &self,
+        domain: &GeneralEvaluationDomain<C::ScalarField>,
+        powers: &Powers<C>,
+    ) -> bool {
+        // TODO transcript
+        let tau = C::ScalarField::one();
+        let rho = C::ScalarField::one();
+        let aggregation_challenge = C::ScalarField::one();
+
+        // calculate w_cap_commitment
+        let w_cap_commitment =
+            compute_w_cap_commitment::<C::G1>(domain, self.commitments.f, self.commitments.q, rho);
+
+        // calculate w2(ρ) and w3(ρ)
+        let (w1_part, w2_part, w3_part) = compute_w1_w2_w3_evals(
+            domain,
+            self.evaluations.g,
+            self.evaluations.g_omega,
+            rho,
+            tau,
+        );
+
+        // calculate w(ρ)
+        // that should zero since w(X) is after all a zero polynomial
+        let w_at_rho = w1_part + w2_part + w3_part - self.evaluations.w_cap;
+        if !w_at_rho.is_zero() {
+            return false;
+        }
+
+        // check aggregate witness commitment
+        let aggregate_poly_commitment = aggregate_commitments::<C::G1>(
+            &[self.commitments.g, w_cap_commitment],
+            aggregation_challenge,
+        );
+        let aggregate_value = aggregate_values(
+            &[self.evaluations.g, self.evaluations.w_cap],
+            aggregation_challenge,
+        );
+        let aggregation_kzg_check = Kzg::verify_scalar(
+            self.proofs.aggregate,
+            aggregate_poly_commitment,
+            rho,
+            aggregate_value,
+            powers,
+        );
+
+        // check shifted witness commitment
+        let rho_omega = rho * domain.group_gen();
+        let shifted_kzg_check = Kzg::verify_scalar(
+            self.proofs.shifted,
+            self.commitments.g,
+            rho_omega,
+            self.evaluations.g_omega,
+            powers,
+        );
+
+        aggregation_kzg_check && shifted_kzg_check
     }
 }
