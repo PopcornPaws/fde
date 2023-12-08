@@ -21,8 +21,6 @@ pub struct PublicInput<const N: usize, C: Pairing> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
-    // TODO domain is not needed to be added here?
-    pub domain: GeneralEvaluationDomain<C::ScalarField>,
 }
 
 impl<const N: usize, C: Pairing> PublicInput<N, C> {
@@ -48,29 +46,15 @@ impl<const N: usize, C: Pairing> PublicInput<N, C> {
             short_ciphers.push(sc);
         }
 
-        let domain = GeneralEvaluationDomain::new(evaluations.len()).expect("valid length");
-
         Self {
             ciphers,
             short_ciphers,
             random_encryption_points,
-            domain,
         }
-    }
-
-    pub fn index_map(&self) -> IndexMap<C::ScalarField> {
-        self.domain
-            .elements()
-            .enumerate()
-            .map(|(i, e)| (e, i))
-            .collect()
     }
 
     pub fn subset(&self, indices: &[usize]) -> Self {
         let size = indices.len();
-        debug_assert!(self.domain.size() >= size);
-        let domain = GeneralEvaluationDomain::new(size).expect("valid domain");
-
         let mut ciphers = Vec::with_capacity(size);
         let mut short_ciphers = Vec::with_capacity(size);
         let mut random_encryption_points = Vec::with_capacity(size);
@@ -84,7 +68,6 @@ impl<const N: usize, C: Pairing> PublicInput<N, C> {
             ciphers,
             short_ciphers,
             random_encryption_points,
-            domain,
         }
     }
 }
@@ -117,6 +100,8 @@ where
             .iter()
             .for_each(|cipher| hasher.update(&cipher.c1()));
 
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len()).expect("valid domain");
+
         // challenge and KZG proof
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
         let challenge_eval = f_s_poly.evaluate(&challenge);
@@ -125,13 +110,13 @@ where
 
         // subset polynomial KZG commitment
         let f_q_poly = (f_poly - f_s_poly)
-            .divide_by_vanishing_poly(input.domain)
+            .divide_by_vanishing_poly(domain)
             .unwrap()
             .0;
         let com_f_q_poly = powers.commit_g1(&f_q_poly).into();
 
         // DLEQ proof
-        let lagrange_evaluations = &input.domain.evaluate_all_lagrange_coefficients(challenge);
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
         let q_point: C::G1 =
             Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations);
 
@@ -171,9 +156,10 @@ where
             })
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len()).expect("valid domain");
 
         // polynomial division check via vanishing polynomial
-        let vanishing_poly = DensePolynomial::from(input.domain.vanishing_polynomial());
+        let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
         let com_vanishing_poly = powers.commit_g2(&vanishing_poly);
         let subset_pairing_check = Kzg::<C>::pairing_check(
             com_f_poly - com_f_s_poly,
@@ -182,7 +168,7 @@ where
         );
 
         // DLEQ check
-        let lagrange_evaluations = &input.domain.evaluate_all_lagrange_coefficients(challenge);
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
         let q_point: C::G1 =
             Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations); // Q
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, lagrange_evaluations); // C_t
@@ -211,6 +197,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use super::IndexMap;
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, KzgElgamalProof, PublicInput, Scalar, UniPoly};
     use ark_ec::pairing::Pairing;
@@ -236,13 +223,19 @@ mod test {
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let input = PublicInput::new(&data, &encryption_pk, rng);
 
+        let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
+
+        let index_map: IndexMap<Scalar> = domain
+            .elements()
+            .enumerate()
+            .map(|(i, e)| (e, i))
+            .collect();
+
         // Interpolate original polynomial and compute its KZG commitment.
         // This is performed only once by the server
-        let evaluations = Evaluations::from_vec_and_domain(data, input.domain);
+        let evaluations = Evaluations::from_vec_and_domain(data, domain);
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let com_f_poly = powers.commit_g1(&f_poly);
-
-        let index_map = input.index_map();
 
         // get subdomain with size suitable for interpolating a polynomial with SUBSET_SIZE
         // coefficients
