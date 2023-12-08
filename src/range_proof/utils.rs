@@ -1,7 +1,8 @@
 use ark_ec::CurveGroup;
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::univariate::DensePolynomial;
-use ark_poly::{DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial};
+use ark_poly::{DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain};
+use ark_std::One;
 
 pub fn compute_f_poly<S: PrimeField>(
     domain: &GeneralEvaluationDomain<S>,
@@ -270,25 +271,25 @@ pub fn aggregate_commitments<C: CurveGroup>(
     aggregation_challenge: C::ScalarField,
 ) -> C::Affine {
     let mut powers = C::ScalarField::one();
-    let mut result = C::Affine::zero();
+    let mut result = C::zero();
 
-    for commitment in commitments {
+    for &commitment in commitments {
         let intermediate_comm = commitment * powers;
         result += intermediate_comm;
-        powers = powers * aggregation_challenge;
+        powers *= aggregation_challenge;
     }
 
     result.into()
 }
 
-pub fn aggregate_values<S: PrimeField>(values: &[Fr], aggregation_challenge: S) -> S {
+pub fn aggregate_values<S: PrimeField>(values: &[S], aggregation_challenge: S) -> S {
     let mut powers = S::one();
     let mut result = S::zero();
 
-    for value in values {
+    for &value in values {
         let intermediate_value = value * powers;
         result += intermediate_value;
-        powers = powers * aggregation_challenge;
+        powers *= aggregation_challenge;
     }
 
     result
@@ -298,8 +299,9 @@ pub fn aggregate_values<S: PrimeField>(values: &[Fr], aggregation_challenge: S) 
 mod test {
     use super::*;
     use crate::commit::kzg::Powers;
-    use crate::tests::{BlsCurve, G1Affine, Scalar};
+    use crate::tests::{BlsCurve, Scalar};
     use ark_ec::pairing::Pairing;
+    use ark_poly::Polynomial;
     use ark_ff::Field;
     use ark_std::{test_rng, UniformRand};
     use ark_std::{One, Zero};
@@ -403,7 +405,6 @@ mod test {
         let domain = GeneralEvaluationDomain::<Scalar>::new(n).unwrap();
         let domain_2n = GeneralEvaluationDomain::<Scalar>::new(2 * n).unwrap();
 
-        let zero = Scalar::zero();
         let one = Scalar::one();
         let two = Scalar::from(2u8);
 

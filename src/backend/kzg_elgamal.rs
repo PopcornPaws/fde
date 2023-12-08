@@ -1,4 +1,4 @@
-use crate::commit::kzg::Powers;
+use crate::commit::kzg::{Kzg, Powers};
 use crate::dleq::Proof as DleqProof;
 use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal, SplitScalar};
 use crate::encrypt::EncryptionEngine;
@@ -10,12 +10,9 @@ use ark_poly::domain::general::GeneralEvaluationDomain;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::EvaluationDomain;
 use ark_poly::Polynomial;
-use ark_poly_commit::DenseUVPolynomial;
 use ark_std::collections::HashMap;
 use ark_std::marker::PhantomData;
-use ark_std::ops::Neg;
 use ark_std::rand::Rng;
-use ark_std::One;
 use digest::Digest;
 
 type IndexMap<T> = HashMap<T, usize>;
@@ -103,8 +100,6 @@ pub struct Proof<const N: usize, C: Pairing, D> {
 impl<const N: usize, C, D> Proof<N, C, D>
 where
     C: Pairing,
-    C::G1Affine: Neg<Output = C::G1Affine>,
-    C::G2Affine: Neg<Output = C::G2Affine>,
     D: Digest,
 {
     pub fn new<R: Rng>(
@@ -124,11 +119,7 @@ where
         // challenge and KZG proof
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
         let challenge_eval = f_s_poly.evaluate(&challenge);
-
-        let d_poly = DensePolynomial::from_coefficients_slice(&[-challenge, C::ScalarField::one()]);
-        let q_poly =
-            &(f_s_poly + &DensePolynomial::from_coefficients_slice(&[-challenge_eval])) / &d_poly;
-        let challenge_opening_proof = powers.commit_g1(&q_poly).into();
+        let challenge_opening_proof = Kzg::proof(&f_s_poly, challenge, challenge_eval, powers);
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
         // subset polynomial KZG commitment
@@ -183,9 +174,11 @@ where
         // polynomial division check via vanishing polynomial
         let vanishing_poly = DensePolynomial::from(input.domain.vanishing_polynomial());
         let com_vanishing_poly = powers.commit_g2(&vanishing_poly);
-        let lhs_pairing = C::pairing(self.com_f_q_poly, com_vanishing_poly);
-        let rhs_pairing = C::pairing(com_f_poly + com_f_s_poly.neg(), C::G2Affine::generator());
-        let subset_pairing_check = lhs_pairing == rhs_pairing;
+        let subset_pairing_check = Kzg::<C>::pairing_check(
+            com_f_poly - com_f_s_poly,
+            self.com_f_q_poly.into_group(),
+            com_vanishing_poly,
+        );
 
         // DLEQ check
         let lagrange_evaluations = &input.domain.evaluate_all_lagrange_coefficients(challenge);
@@ -202,18 +195,16 @@ where
         );
 
         // KZG pairing check
-        let neg_g_challenge = (C::G2Affine::generator() * challenge).into_affine().neg();
-        let lhs_pairing = C::pairing(
-            com_f_s_poly - self.challenge_eval_commitment,
-            C::G2Affine::generator(),
-        );
-        let rhs_pairing = C::pairing(
+        let point = C::G2Affine::generator() * challenge;
+        let kzg_check = Kzg::verify(
             self.challenge_opening_proof,
-            powers.g2_tau() + neg_g_challenge,
+            com_f_s_poly.into(),
+            point,
+            self.challenge_eval_commitment.into_group(),
+            powers,
         );
-        let pairing_check = lhs_pairing == rhs_pairing;
 
-        dleq_check && pairing_check && subset_pairing_check
+        dleq_check && kzg_check && subset_pairing_check
     }
 }
 
