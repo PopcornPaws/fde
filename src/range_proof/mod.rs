@@ -200,3 +200,24 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         aggregation_kzg_check && shifted_kzg_check
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::commit::kzg::Powers;
+    use crate::tests::{BlsCurve, RangeProof, Scalar};
+    use ark_std::{test_rng, UniformRand};
+
+    const LOG_2_UPPER_BOUND: usize = 8; // 2^8
+
+    #[test]
+    fn range_proof_success() {
+        // KZG setup simulation
+        let rng = &mut test_rng();
+        let tau = Scalar::rand(rng); // "secret" tau
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
+
+        let z = Scalar::from(250u32);
+        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
+        assert!(proof.verify(LOG_2_UPPER_BOUND, &powers));
+    }
+}

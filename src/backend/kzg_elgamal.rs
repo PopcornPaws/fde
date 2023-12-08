@@ -100,7 +100,8 @@ where
             .iter()
             .for_each(|cipher| hasher.update(&cipher.c1()));
 
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len()).expect("valid domain");
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len())
+            .expect("valid domain");
 
         // challenge and KZG proof
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
@@ -156,7 +157,8 @@ where
             })
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len()).expect("valid domain");
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len())
+            .expect("valid domain");
 
         // polynomial division check via vanishing polynomial
         let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
@@ -225,11 +227,8 @@ mod test {
 
         let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
 
-        let index_map: IndexMap<Scalar> = domain
-            .elements()
-            .enumerate()
-            .map(|(i, e)| (e, i))
-            .collect();
+        let index_map: IndexMap<Scalar> =
+            domain.elements().enumerate().map(|(i, e)| (e, i)).collect();
 
         // Interpolate original polynomial and compute its KZG commitment.
         // This is performed only once by the server
