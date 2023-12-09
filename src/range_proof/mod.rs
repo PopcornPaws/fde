@@ -1,16 +1,17 @@
 // NOTE code mostly taken from https://github.com/roynalnaruto/range_proof
+mod commitment;
+mod poly;
 mod utils;
-use utils::*;
 
 use crate::commit::kzg::{Kzg, Powers};
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
-use ark_ec::CurveGroup;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
 use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
-use ark_std::{UniformRand, Zero};
+use ark_std::UniformRand;
 use digest::Digest;
 
 pub struct Transcript<D, S> {
@@ -80,37 +81,37 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         let beta = C::ScalarField::rand(rng);
 
         // compute all polynomials
-        let f_poly = compute_f_poly(&domain, z, r);
-        let g_poly = compute_g_poly(&domain, z, alpha, beta);
-        let (w1_poly, w2_poly) = compute_w1_w2_polys(&domain, &f_poly, &g_poly);
-        let w3_poly = compute_w3_poly(&domain, &domain_2n, &g_poly);
+        let f_poly = poly::f(&domain, z, r);
+        let g_poly = poly::g(&domain, z, alpha, beta);
+        let (w1_poly, w2_poly) = poly::w1_w2(&domain, &f_poly, &g_poly);
+        let w3_poly = poly::w3(&domain, &domain_2n, &g_poly);
 
         // aggregate w1, w2 and w3 to compute quotient polynomial
-        let q_poly = compute_quotient_poly(&domain, &w1_poly, &w2_poly, &w3_poly, tau);
+        let q_poly = poly::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, tau);
 
         // compute commitments to polynomials
         let f_commitment = powers.commit_g1(&f_poly);
         let g_commitment = powers.commit_g1(&g_poly);
         let q_commitment = powers.commit_g1(&q_poly);
 
-        let rho_omega: C::ScalarField = rho * domain.group_gen();
+        let rho_omega = rho * domain.group_gen();
         // evaluate g at rho
         let g_eval = g_poly.evaluate(&rho);
         // evaluate g at `rho * omega`
         let g_omega_eval = g_poly.evaluate(&rho_omega);
 
         // compute evaluation of w_cap at ρ
-        let w_cap_poly = compute_w_cap_poly(&domain, &f_poly, &q_poly, rho);
-        let w_cap_eval = w_cap_poly.evaluate(&rho);
+        let w_cap_poly = poly::w_cap(&domain, &f_poly, &q_poly, rho);
+        let w_cap_eval = dbg!(w_cap_poly.evaluate(&rho));
 
         // compute witness for g(X) at ρw
-        let shifted_witness_poly = create_witness(&g_poly, rho_omega);
+        let shifted_witness_poly = Kzg::<C>::witness(&g_poly, rho_omega);
         let shifted_proof = powers.commit_g1(&shifted_witness_poly);
 
         // compute aggregate witness for
         // g(X) at ρ, f(X) at ρ, w_cap(X) at ρ
         let aggregate_witness_poly =
-            create_aggregate_witness(&[g_poly, w_cap_poly], rho, aggregation_challenge);
+            Kzg::<C>::aggregate_witness(&[g_poly, w_cap_poly], rho, aggregation_challenge);
         let aggregate_proof = powers.commit_g1(&aggregate_witness_poly);
 
         let evaluations = Evaluations {
@@ -129,6 +130,10 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
             aggregate: aggregate_proof.into_affine(),
             shifted: shifted_proof.into_affine(),
         };
+
+        let (w1_part, w2_part, w3_part) =
+            utils::w1_w2_w3_evals(&domain, evaluations.g, evaluations.g_omega, rho, tau);
+        dbg!(w1_part + w2_part + w3_part);
 
         Self {
             evaluations,
@@ -152,10 +157,10 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
 
         // calculate w_cap_commitment
         let w_cap_commitment =
-            compute_w_cap_commitment::<C::G1>(&domain, self.commitments.f, self.commitments.q, rho);
+            commitment::w_cap::<C::G1>(&domain, self.commitments.f, self.commitments.q, rho);
 
         // calculate w2(ρ) and w3(ρ)
-        let (w1_part, w2_part, w3_part) = compute_w1_w2_w3_evals(
+        let (w1_part, w2_part, w3_part) = utils::w1_w2_w3_evals(
             &domain,
             self.evaluations.g,
             self.evaluations.g_omega,
@@ -165,37 +170,37 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
 
         // calculate w(ρ)
         // that should zero since w(X) is after all a zero polynomial
-        let w_at_rho = w1_part + w2_part + w3_part - self.evaluations.w_cap;
-        if !w_at_rho.is_zero() {
-            return false;
-        }
+        debug_assert_eq!(w1_part + w2_part + w3_part, self.evaluations.w_cap);
 
         // check aggregate witness commitment
-        let aggregate_poly_commitment = aggregate_commitments::<C::G1>(
-            &[self.commitments.g, w_cap_commitment],
+        let aggregate_poly_commitment = utils::aggregate(
+            &[
+                self.commitments.g.into_group(),
+                w_cap_commitment.into_group(),
+            ],
             aggregation_challenge,
         );
-        let aggregate_value = aggregate_values(
+        let aggregate_value = utils::aggregate(
             &[self.evaluations.g, self.evaluations.w_cap],
             aggregation_challenge,
         );
-        let aggregation_kzg_check = Kzg::verify_scalar(
+        let aggregation_kzg_check = dbg!(Kzg::verify_scalar(
             self.proofs.aggregate,
-            aggregate_poly_commitment,
+            aggregate_poly_commitment.into_affine(),
             rho,
             aggregate_value,
             powers,
-        );
+        ));
 
         // check shifted witness commitment
         let rho_omega = rho * domain.group_gen();
-        let shifted_kzg_check = Kzg::verify_scalar(
+        let shifted_kzg_check = dbg!(Kzg::verify_scalar(
             self.proofs.shifted,
             self.commitments.g,
             rho_omega,
             self.evaluations.g_omega,
             powers,
-        );
+        ));
 
         aggregation_kzg_check && shifted_kzg_check
     }

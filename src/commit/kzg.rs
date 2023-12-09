@@ -1,6 +1,7 @@
 // We need to commit to G2 as well, which arkworks' kzg10 implementation doesn't allow
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
+use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly_commit::DenseUVPolynomial;
 use ark_std::marker::PhantomData;
@@ -55,15 +56,32 @@ impl<C: Pairing> Powers<C> {
 pub struct Kzg<C: Pairing>(PhantomData<C>);
 
 impl<C: Pairing> Kzg<C> {
+    pub fn witness(
+        poly: &DensePolynomial<C::ScalarField>,
+        point: C::ScalarField,
+    ) -> DensePolynomial<C::ScalarField> {
+        let divisor = DensePolynomial::from_coefficients_slice(&[-point, C::ScalarField::one()]);
+        poly / &divisor
+    }
+
+    pub fn aggregate_witness(
+        polys: &[DensePolynomial<C::ScalarField>],
+        point: C::ScalarField,
+        challenge: C::ScalarField,
+    ) -> DensePolynomial<C::ScalarField> {
+        let aggregated = aggregate_polys(polys, challenge);
+        Self::witness(&aggregated, point)
+    }
+
     pub fn proof(
         poly: &DensePolynomial<C::ScalarField>,
         point: C::ScalarField,
         value: C::ScalarField,
         powers: &Powers<C>,
     ) -> C::G1Affine {
-        let d_poly = DensePolynomial::from_coefficients_slice(&[-point, C::ScalarField::one()]);
-        let q_poly = &(poly + &DensePolynomial::from_coefficients_slice(&[-value])) / &d_poly;
-        powers.commit_g1(&q_poly).into()
+        let numerator = poly + &DensePolynomial::from_coefficients_slice(&[-value]);
+        let quotient = Self::witness(&numerator, point);
+        powers.commit_g1(&quotient).into()
     }
 
     pub fn verify_scalar(
@@ -142,6 +160,19 @@ impl<C: Pairing> Kzg<C> {
         .0
         .is_one()
     }
+}
+
+pub fn aggregate_polys<S: PrimeField>(values: &[DensePolynomial<S>], by: S) -> DensePolynomial<S> {
+    let mut acc = S::one();
+    let mut result = DensePolynomial::zero();
+
+    for value in values {
+        let tmp = value * &DensePolynomial { coeffs: vec![acc] };
+        result += &tmp;
+        acc *= by;
+    }
+
+    result
 }
 
 #[cfg(test)]

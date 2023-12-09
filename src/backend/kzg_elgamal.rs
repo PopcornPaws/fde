@@ -10,12 +10,9 @@ use ark_poly::domain::general::GeneralEvaluationDomain;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::EvaluationDomain;
 use ark_poly::Polynomial;
-use ark_std::collections::HashMap;
 use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use digest::Digest;
-
-type IndexMap<T> = HashMap<T, usize>;
 
 pub struct PublicInput<const N: usize, C: Pairing> {
     pub ciphers: Vec<Cipher<C::G1>>,
@@ -199,12 +196,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::IndexMap;
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, KzgElgamalProof, PublicInput, Scalar, UniPoly};
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
+    use ark_std::collections::HashMap;
     use ark_std::{test_rng, UniformRand};
 
     const DATA_SIZE: usize = 64;
@@ -227,7 +224,7 @@ mod test {
 
         let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
 
-        let index_map: IndexMap<Scalar> =
+        let index_map: HashMap<Scalar, usize> =
             domain.elements().enumerate().map(|(i, e)| (e, i)).collect();
 
         // Interpolate original polynomial and compute its KZG commitment.
