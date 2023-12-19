@@ -17,6 +17,7 @@ use digest::Digest;
 pub struct PublicInput<const N: usize, C: Pairing> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
+    //pub range_proofs: Vec<[RangeProof<C::G1>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
 }
 

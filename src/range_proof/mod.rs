@@ -6,33 +6,13 @@ use crate::commit::kzg::{Kzg, Powers};
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
 use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use ark_std::UniformRand;
 use digest::Digest;
 
-pub struct Transcript<D, S> {
-    pub seed: S,
-    _digest: PhantomData<D>,
-}
-
-impl<D: Digest, S: PrimeField> Transcript<D, S> {
-    pub fn new(seed: S) -> Self {
-        Self {
-            seed,
-            _digest: PhantomData,
-        }
-    }
-
-    pub fn scalar(&self, label: &[u8]) -> S {
-        let mut hasher = Hasher::<D>::new();
-        hasher.update(&self.seed.into_bigint().to_bytes_le());
-        hasher.update(&label);
-        S::from_le_bytes_mod_order(&hasher.finalize())
-    }
-}
+const PROOF_DOMAIN_SEP: &[u8] = b"fde range proof";
 
 pub struct Evaluations<S> {
     pub g: S,
@@ -65,32 +45,33 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         let domain_2n =
             GeneralEvaluationDomain::<C::ScalarField>::new(2 * n).expect("valid domain");
 
-        let mut hasher = Hasher::<D>::new();
-        hasher.update(&n.to_le_bytes());
-        hasher.update(&domain.group_gen().into_bigint().to_bytes_le());
-        let seed = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
-        let transcript = Transcript::<D, C::ScalarField>::new(seed);
-        let tau = transcript.scalar(b"tau");
-        let rho = transcript.scalar(b"rho");
-        let aggregation_challenge = transcript.scalar(b"aggregation_challenge");
-
         // random scalars
         let r = C::ScalarField::rand(rng);
         let alpha = C::ScalarField::rand(rng);
         let beta = C::ScalarField::rand(rng);
 
-        // compute all polynomials
+        // compute f and g polynomials and their commitments
         let f_poly = poly::f(&domain, z, r);
         let g_poly = poly::g(&domain, z, alpha, beta);
-        let (w1_poly, w2_poly) = poly::w1_w2(&domain, &f_poly, &g_poly);
-        let w3_poly = poly::w3(&domain, &domain_2n, &g_poly);
-
-        // aggregate w1, w2 and w3 to compute quotient polynomial
-        let q_poly = poly::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, tau);
-
-        // compute commitments to polynomials
         let f_commitment = powers.commit_g1(&f_poly);
         let g_commitment = powers.commit_g1(&g_poly);
+
+        // compute challenges
+        let mut hasher = Hasher::<D>::new();
+        hasher.update(&PROOF_DOMAIN_SEP);
+        hasher.update(&n.to_le_bytes());
+        hasher.update(&domain.group_gen());
+        hasher.update(&f_commitment);
+        hasher.update(&g_commitment);
+
+        let tau = hasher.next_scalar(b"tau");
+        let rho = hasher.next_scalar(b"rho");
+        let aggregation_challenge = hasher.next_scalar(b"aggregation_challenge");
+
+        // aggregate w1, w2 and w3 to compute quotient polynomial
+        let (w1_poly, w2_poly) = poly::w1_w2(&domain, &f_poly, &g_poly);
+        let w3_poly = poly::w3(&domain, &domain_2n, &g_poly);
+        let q_poly = poly::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, tau);
         let q_commitment = powers.commit_g1(&q_poly);
 
         let rho_omega = rho * domain.group_gen();
@@ -142,13 +123,15 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n).expect("valid domain");
 
         let mut hasher = Hasher::<D>::new();
+        hasher.update(&PROOF_DOMAIN_SEP);
         hasher.update(&n.to_le_bytes());
-        hasher.update(&domain.group_gen().into_bigint().to_bytes_le());
-        let seed = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
-        let transcript = Transcript::<D, C::ScalarField>::new(seed);
-        let tau = transcript.scalar(b"tau");
-        let rho = transcript.scalar(b"rho");
-        let aggregation_challenge = transcript.scalar(b"aggregation_challenge");
+        hasher.update(&domain.group_gen());
+        hasher.update(&self.commitments.f);
+        hasher.update(&self.commitments.g);
+
+        let tau = hasher.next_scalar(b"tau");
+        let rho = hasher.next_scalar(b"rho");
+        let aggregation_challenge: C::ScalarField = hasher.next_scalar(b"aggregation_challenge");
 
         // calculate w_cap_commitment
         let w_cap_commitment =
