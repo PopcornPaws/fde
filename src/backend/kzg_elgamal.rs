@@ -1,8 +1,9 @@
 use crate::commit::kzg::{Kzg, Powers};
 use crate::dleq::Proof as DleqProof;
-use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal, SplitScalar};
+use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal, SplitScalar, MAX_BITS};
 use crate::encrypt::EncryptionEngine;
 use crate::hash::Hasher;
+use crate::range_proof::RangeProof;
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::PrimeField;
@@ -14,25 +15,30 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use digest::Digest;
 
-pub struct PublicInput<const N: usize, C: Pairing> {
+pub struct PublicInput<const N: usize, C: Pairing, D: Digest> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
-    //pub range_proofs: Vec<[RangeProof<C::G1>; N]>,
+    pub range_proofs: Vec<[RangeProof<C, D>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
 }
 
-impl<const N: usize, C: Pairing> PublicInput<N, C> {
+impl<const N: usize, C: Pairing, D: Digest> PublicInput<N, C, D> {
     pub fn new<R: Rng>(
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
+        powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
         let mut random_encryption_points = Vec::with_capacity(evaluations.len());
         let mut ciphers = Vec::with_capacity(evaluations.len());
         let mut short_ciphers = Vec::with_capacity(evaluations.len());
+        let mut range_proofs = Vec::with_capacity(evaluations.len());
 
         for eval in evaluations {
             let split_eval = SplitScalar::from(*eval);
+            let rp = split_eval
+                .splits()
+                .map(|s| RangeProof::new(s, MAX_BITS, powers, rng));
             let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(encryption_pk, rng);
             let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
                 eval,
@@ -42,11 +48,13 @@ impl<const N: usize, C: Pairing> PublicInput<N, C> {
             random_encryption_points.push((C::G1Affine::generator() * rand).into_affine());
             ciphers.push(cipher);
             short_ciphers.push(sc);
+            range_proofs.push(rp);
         }
 
         Self {
             ciphers,
             short_ciphers,
+            range_proofs,
             random_encryption_points,
         }
     }
@@ -56,15 +64,19 @@ impl<const N: usize, C: Pairing> PublicInput<N, C> {
         let mut ciphers = Vec::with_capacity(size);
         let mut short_ciphers = Vec::with_capacity(size);
         let mut random_encryption_points = Vec::with_capacity(size);
+        let mut range_proofs = Vec::with_capacity(size);
         for &index in indices {
             ciphers.push(self.ciphers[index]);
             short_ciphers.push(self.short_ciphers[index]);
             random_encryption_points.push(self.random_encryption_points[index]);
+            // TODO why is this not clonable???
+            //range_proofs.push(self.range_proofs[index].clone());
         }
 
         Self {
             ciphers,
             short_ciphers,
+            range_proofs,
             random_encryption_points,
         }
     }
@@ -88,7 +100,7 @@ where
         f_poly: &DensePolynomial<C::ScalarField>,
         f_s_poly: &DensePolynomial<C::ScalarField>,
         encryption_sk: &C::ScalarField,
-        input: &PublicInput<N, C>,
+        input: &PublicInput<N, C, D>,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
@@ -141,7 +153,7 @@ where
         com_f_poly: C::G1,
         com_f_s_poly: C::G1,
         encryption_pk: C::G1Affine,
-        input: &PublicInput<N, C>,
+        input: &PublicInput<N, C, D>,
         powers: &Powers<C>,
     ) -> bool {
         let mut hasher = Hasher::<D>::new();
@@ -198,6 +210,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::commit::kzg::Powers;
+    use crate::encrypt::elgamal::MAX_BITS;
     use crate::tests::{BlsCurve, KzgElgamalProof, PublicInput, Scalar, UniPoly};
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
@@ -213,7 +226,7 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE + 1); // generate powers of tau size DATA_SIZE
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, (DATA_SIZE + 1).max(MAX_BITS * 4)); // generate powers of tau size DATA_SIZE
 
         // Server's (elphemeral?) encryption key for this session
         let encryption_sk = Scalar::rand(rng);
@@ -221,7 +234,12 @@ mod test {
 
         // Generate random data and public inputs (encrypted data, etc)
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
-        let input = PublicInput::new(&data, &encryption_pk, rng);
+        let input = PublicInput::new(&data, &encryption_pk, &powers, rng);
+
+        input
+            .range_proofs
+            .iter()
+            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers))));
 
         let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
 

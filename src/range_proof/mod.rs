@@ -14,23 +14,27 @@ use digest::Digest;
 
 const PROOF_DOMAIN_SEP: &[u8] = b"fde range proof";
 
+#[derive(Clone, Copy, Debug)]
 pub struct Evaluations<S> {
     pub g: S,
     pub g_omega: S,
     pub w_cap: S,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct Commitments<C: Pairing> {
     pub f: C::G1Affine,
     pub g: C::G1Affine,
     pub q: C::G1Affine,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct Proofs<C: Pairing> {
     pub aggregate: C::G1Affine,
     pub shifted: C::G1Affine,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct RangeProof<C: Pairing, D> {
     pub evaluations: Evaluations<C::ScalarField>,
     pub commitments: Commitments<C>,
