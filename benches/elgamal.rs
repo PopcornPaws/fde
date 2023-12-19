@@ -8,7 +8,6 @@ use fde::encrypt::EncryptionEngine;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-// TODO do this for multiple ciphers in parallel
 const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fde::encrypt::elgamal::MAX_BITS + 1;
 
 type Scalar = <BlsCurve as Pairing>::ScalarField;

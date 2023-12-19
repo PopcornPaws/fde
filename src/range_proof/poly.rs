@@ -1,6 +1,7 @@
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain};
+use ark_std::Zero;
 
 pub fn f<S: PrimeField>(domain: &GeneralEvaluationDomain<S>, z: S, r: S) -> DensePolynomial<S> {
     // f is a linear polynomial: f(1) = z
@@ -135,21 +136,15 @@ pub fn quotient<S: PrimeField>(
     w3_poly: &DensePolynomial<S>,
     tau: S,
 ) -> DensePolynomial<S> {
-    // find constant polynomials for tau and tau^2
-    let (tau_poly, tau2_poly) = tau_12(tau);
     // find linear combination of w1, w2, w3
-    let lc = &(w1_poly + &(w2_poly * &tau_poly)) + &(w3_poly * &tau2_poly);
-    let (_, quotient_poly) = lc
+    let lc = w1_poly + &(w2_poly * tau) + w3_poly * tau.square();
+    let (quotient_poly, rem) = lc
         .divide_by_vanishing_poly(*domain)
         .expect("valid vanishing poly");
+    // since the linear combination should also satisfy all roots of unity, q_rem should be a zero
+    // polynomial
+    debug_assert!(rem.is_zero(), "remainder poly should be zero");
     quotient_poly
-}
-
-pub fn tau_12<S: PrimeField>(tau: S) -> (DensePolynomial<S>, DensePolynomial<S>) {
-    (
-        DensePolynomial::from_coefficients_slice(&[tau]),
-        DensePolynomial::from_coefficients_slice(&[tau.square()]),
-    )
 }
 
 #[cfg(test)]
@@ -169,8 +164,7 @@ mod test {
         w3: &DensePolynomial<S>,
         tau: S,
     ) -> (DensePolynomial<S>, DensePolynomial<S>) {
-        let (poly_tau, poly_tau_2) = super::tau_12(tau);
-        (w2 * &poly_tau, w3 * &poly_tau_2)
+        (w2 * tau, w3 * tau.square())
     }
 
     fn w1_part<S: PrimeField>(
@@ -318,34 +312,6 @@ mod test {
     }
 
     #[test]
-    fn compute_q_poly_success() {
-        let rng = &mut test_rng();
-        let n = 8usize;
-        let domain = GeneralEvaluationDomain::<Scalar>::new(n).unwrap();
-        let domain_2n = GeneralEvaluationDomain::<Scalar>::new(2 * n).unwrap();
-
-        let z = Scalar::from(68u8);
-        let r = Scalar::rand(rng);
-        let alpha = Scalar::rand(rng);
-        let beta = Scalar::rand(rng);
-        let f_poly = super::f(&domain, z, r);
-        let g_poly = super::g(&domain, z, alpha, beta);
-        let (w1_poly, w2_poly) = super::w1_w2(&domain, &f_poly, &g_poly);
-        let w3_poly = super::w3(&domain, &domain_2n, &g_poly);
-
-        let tau = Scalar::rand(rng);
-
-        let q_poly = super::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, tau);
-
-        // since the linear combination should also satisfy all roots of unity, q_rem should be a
-        // zero polynomial
-        assert_eq!(
-            q_poly,
-            DensePolynomial::from_coefficients_slice(&[Scalar::zero()])
-        );
-    }
-
-    #[test]
     fn compute_w_cap_poly_success() {
         let rng = &mut test_rng();
 
@@ -379,21 +345,21 @@ mod test {
         let w_cap_commitment_expected = powers.commit_g1(&w_cap_poly);
 
         // calculate w_cap commitment fact that commitment scheme is additively homomorphic
-        let w_cap_commitment_calculated = super::super::commitment::w_cap::<
-            <BlsCurve as Pairing>::G1,
-        >(&domain, f_commitment, q_commitment, rho);
+        let w_cap_commitment_calculated = super::super::utils::w_cap::<<BlsCurve as Pairing>::G1>(
+            domain.size(),
+            f_commitment,
+            q_commitment,
+            rho,
+        );
 
         assert_eq!(w_cap_commitment_expected, w_cap_commitment_calculated);
 
         // check evaluations
-        // TODO in theory these should pass, but there's something
-        // wrong with w1_w2_w3_evals probably
-        //let w_cap_eval = w_cap_poly.evaluate(&rho);
-        //let g_eval = g_poly.evaluate(&rho);
-        //let g_omega_eval = g_poly.evaluate(&(rho * domain.group_gen()));
-        //let (w1, w2, w3) =
-        //    super::super::utils::w1_w2_w3_evals(&domain, g_eval, g_omega_eval, rho, tau);
-        //assert_eq!(w1 + w2 + w3, w_cap_eval);
+        let w_cap_eval = w_cap_poly.evaluate(&rho);
+        let g_eval = g_poly.evaluate(&rho);
+        let g_omega_eval = g_poly.evaluate(&(rho * domain.group_gen()));
+        let sum = super::super::utils::w1_w2_w3_evals_sum(&domain, g_eval, g_omega_eval, rho, t);
+        assert_eq!(sum, w_cap_eval);
     }
 
     #[test]

@@ -1,5 +1,4 @@
 // NOTE code mostly taken from https://github.com/roynalnaruto/range_proof
-mod commitment;
 mod poly;
 mod utils;
 
@@ -102,7 +101,7 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
 
         // compute evaluation of w_cap at ρ
         let w_cap_poly = poly::w_cap(&domain, &f_poly, &q_poly, rho);
-        let w_cap_eval = dbg!(w_cap_poly.evaluate(&rho));
+        let w_cap_eval = w_cap_poly.evaluate(&rho);
 
         // compute witness for g(X) at ρw
         let shifted_witness_poly = Kzg::<C>::witness(&g_poly, rho_omega);
@@ -131,10 +130,6 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
             shifted: shifted_proof.into_affine(),
         };
 
-        let (w1_part, w2_part, w3_part) =
-            utils::w1_w2_w3_evals(&domain, evaluations.g, evaluations.g_omega, rho, tau);
-        dbg!(w1_part + w2_part + w3_part);
-
         Self {
             evaluations,
             commitments,
@@ -157,20 +152,20 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
 
         // calculate w_cap_commitment
         let w_cap_commitment =
-            commitment::w_cap::<C::G1>(&domain, self.commitments.f, self.commitments.q, rho);
+            utils::w_cap::<C::G1>(domain.size(), self.commitments.f, self.commitments.q, rho);
 
         // calculate w2(ρ) and w3(ρ)
-        let (w1_part, w2_part, w3_part) = utils::w1_w2_w3_evals(
+        let sum = utils::w1_w2_w3_evals_sum(
             &domain,
             self.evaluations.g,
             self.evaluations.g_omega,
             rho,
             tau,
         );
-
         // calculate w(ρ) that should zero since w(X) is after all a zero polynomial
-        // TODO wtf is going on here???
-        //debug_assert_eq!(w1_part + w2_part + w3_part, self.evaluations.w_cap);
+        if sum != self.evaluations.w_cap {
+            return false;
+        }
 
         // check aggregate witness commitment
         let aggregate_poly_commitment = utils::aggregate(
@@ -194,13 +189,13 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
 
         // check shifted witness commitment
         let rho_omega = rho * domain.group_gen();
-        let shifted_kzg_check = dbg!(Kzg::verify_scalar(
+        let shifted_kzg_check = Kzg::verify_scalar(
             self.proofs.shifted,
             self.commitments.g,
             rho_omega,
             self.evaluations.g_omega,
             powers,
-        ));
+        );
 
         aggregation_kzg_check && shifted_kzg_check
     }
@@ -243,7 +238,8 @@ mod test {
     }
 
     #[test]
-    fn range_proof_with_too_large_z_fails() {
+    #[should_panic(expected = "remainder poly should be zero")]
+    fn range_proof_with_too_large_z_fails_1() {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
@@ -252,6 +248,15 @@ mod test {
         let z = Scalar::from(256u32);
         let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
         assert!(!proof.verify(LOG_2_UPPER_BOUND - 1, &powers));
+    }
+
+    #[test]
+    #[should_panic(expected = "remainder poly should be zero")]
+    fn range_proof_with_too_large_z_fails_2() {
+        // KZG setup simulation
+        let rng = &mut test_rng();
+        let tau = Scalar::rand(rng); // "secret" tau
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(300u32);
         let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
