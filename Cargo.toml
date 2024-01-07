@@ -7,7 +7,7 @@ edition = "2021"
 opt-level = 3
 
 [features]
-default = ["std"]
+default = ["std", "paillier"]
 std = [
     "ark-crypto-primitives/std",
     "ark-ec/std",
@@ -26,6 +26,12 @@ parallel = [
     "ark-std/parallel",
     "rayon"
 ]
+paillier = [
+    "num-bigint",
+    "num-integer",
+    "num-prime",
+    "num-traits",
+]
 
 [dependencies]
 ark-crypto-primitives = { version = "0.4", default-features = false, features = ["signature"] }
@@ -35,6 +41,10 @@ ark-poly = { version = "0.4", default-features = false }
 ark-poly-commit = { version = "0.4", default-features = false }
 ark-serialize = { version = "0.4", default-features = false }
 ark-std = { version = "0.4", default-features = false }
+num-bigint = { version = "0.4", features = ["rand"], optional = true }
+num-integer = { version = "0.1", optional = true }
+num-prime = { version = "0.4", optional = true }
+num-traits = { version = "0.2", optional = true }
 digest = { version = "0.10", default-features = false }
 rayon = { version = "1.8", optional = true }
 
