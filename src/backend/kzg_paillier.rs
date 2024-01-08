@@ -1,9 +1,12 @@
 use crate::commit::kzg::Powers;
+use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
-use ark_ec::VariableBaseMSM as Msm;
+use ark_ec::{CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::fields::PrimeField;
+use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
+use digest::Digest;
 use num_bigint::{BigUint, RandomBits};
 use num_integer::Integer;
 use num_prime::nt_funcs::prev_prime;
@@ -29,46 +32,23 @@ impl Server {
 
         Self { pubkey, privkey }
     }
+}
 
-    pub fn encrypt<C: Pairing>(
-        &self,
-        values: &[BigUint],
-        random_params: PaillierRandomParameters,
-        commitment: &C::G1,
-        powers: &Powers<C>,
-    ) -> PaillierEncryptionProof {
-        let ct_vec = batch_encrypt(values, &self.pubkey, &random_params.u_vec);
-        let t_vec = batch_encrypt(&random_params.r_vec, &self.pubkey, &random_params.s_vec);
-        let r_scalar_vec: Vec<C::ScalarField> = random_params
-            .r_vec
-            .iter()
-            .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
-            .collect();
-        let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
-        let challenge = BigUint::one(); // TODO from hash
-        let w_vec: Vec<BigUint> = random_params
-            .s_vec
-            .iter()
-            .zip(&random_params.u_vec)
-            .map(|(s, u)| pow_mult_mod(s, &BigUint::one(), u, &challenge, &self.pubkey))
-            .collect();
-        let z_vec: Vec<BigUint> = random_params
-            .r_vec
-            .iter()
-            .zip(values)
-            .map(|(r, val)| {
-                let aux = (&challenge * val) % &self.pubkey;
-                (r + aux) % &self.pubkey
-            })
-            .collect();
+fn challenge<C: CurveGroup, D: Digest>(
+    pubkey: &BigUint,
+    ct_slice: &[BigUint],
+    commitment: &C,
+    t_slice: &[BigUint],
+    t: &C,
+) -> BigUint {
+    let mut hasher = Hasher::<D>::new();
+    hasher.update(pubkey);
+    ct_slice.iter().for_each(|ct| hasher.update(ct));
+    hasher.update(commitment);
+    t_slice.iter().for_each(|t| hasher.update(t));
+    hasher.update(t);
 
-        PaillierEncryptionProof {
-            challenge,
-            ct_vec,
-            w_vec,
-            z_vec,
-        }
-    }
+    BigUint::from_bytes_le(&hasher.finalize())
 }
 
 fn primes<R: Rng>(n_bits: u64, rng: &mut R) -> (BigUint, BigUint) {
@@ -92,7 +72,7 @@ fn find_next_smaller_prime(target: &BigUint) -> BigUint {
 // TODO move encryption-related stuff to encrypt::paillier.rs
 fn encrypt(value: &BigUint, key: &BigUint, random: &BigUint) -> BigUint {
     let n2 = key * key;
-    pow_mult_mod(&(key + BigUint::one()), value, &random, key, &n2)
+    pow_mult_mod(&(key + BigUint::one()), value, random, key, &n2)
 }
 
 #[cfg(not(feature = "parallel"))]
@@ -138,7 +118,7 @@ impl PaillierRandomParameters {
         for _ in 0..size {
             u_vec.push(RandomBits::new(N_BITS).sample(rng));
             s_vec.push(RandomBits::new(N_BITS).sample(rng));
-            r_vec.push(RandomBits::new(N_BITS).sample(rng));
+            r_vec.push(RandomBits::new(N_BITS >> 1).sample(rng));
         }
 
         Self {
@@ -149,17 +129,100 @@ impl PaillierRandomParameters {
     }
 }
 
-pub struct PaillierEncryptionProof {
+pub struct PaillierEncryptionProof<D> {
     pub challenge: BigUint,
     pub ct_vec: Vec<BigUint>,
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
+    _digest: PhantomData<D>,
+}
+
+impl<D: Digest> PaillierEncryptionProof<D> {
+    pub fn new<C: Pairing>(
+        pubkey: &BigUint,
+        values: &[BigUint],
+        random_params: PaillierRandomParameters,
+        commitment: &C::G1,
+        powers: &Powers<C>,
+    ) -> Self {
+        let ct_vec = batch_encrypt(values, pubkey, &random_params.u_vec);
+        let t_vec = batch_encrypt(&random_params.r_vec, pubkey, &random_params.s_vec);
+        let r_scalar_vec: Vec<C::ScalarField> = random_params
+            .r_vec
+            .iter()
+            .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
+            .collect();
+        let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
+        let challenge = challenge::<C::G1, D>(pubkey, &ct_vec, commitment, &t_vec, &t);
+        let w_vec: Vec<BigUint> = random_params
+            .s_vec
+            .iter()
+            .zip(&random_params.u_vec)
+            .map(|(s, u)| pow_mult_mod(s, &BigUint::one(), u, &challenge, pubkey))
+            .collect();
+        let z_vec: Vec<BigUint> = random_params
+            .r_vec
+            .iter()
+            .zip(values)
+            .map(|(r, val)| {
+                let aux = (&challenge * val) % pubkey;
+                (r + aux) % pubkey
+            })
+            .collect();
+
+        Self {
+            challenge,
+            ct_vec,
+            w_vec,
+            z_vec,
+            _digest: PhantomData,
+        }
+    }
+    pub fn verify<C: Pairing>(
+        &self,
+        pubkey: &BigUint,
+        commitment: &C::G1,
+        powers: &Powers<C>,
+    ) -> bool {
+        let modulo = pubkey * pubkey;
+        let t_vec_expected: Vec<BigUint> = self
+            .ct_vec
+            .iter()
+            .zip(self.w_vec.iter().zip(&self.z_vec))
+            .map(|(ct, (w, z))| {
+                let aux = pow_mult_mod(&(pubkey + BigUint::one()), z, w, pubkey, &modulo);
+                // TODO -e
+                // compute ct^e and then find the modular inverse using the
+                // extended_gcd_lcm algorithm
+                pow_mult_mod(&aux, &BigUint::one(), ct, &self.challenge, &modulo)
+            })
+            .collect();
+        let z_scalar_vec: Vec<C::ScalarField> = self
+            .z_vec
+            .iter()
+            .map(|z| C::ScalarField::from_le_bytes_mod_order(&z.to_bytes_le()))
+            .collect();
+        let t_expected =
+            <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec)
+                - *commitment
+                    * C::ScalarField::from_le_bytes_mod_order(&self.challenge.to_bytes_le());
+
+        let challenge_expected = challenge::<C::G1, D>(
+            pubkey,
+            &self.ct_vec,
+            commitment,
+            &t_vec_expected,
+            &t_expected,
+        );
+        self.challenge == challenge_expected
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use ark_std::test_rng;
+    use num_bigint::BigInt;
 
     // TODO fix tests
     #[test]
@@ -170,5 +233,11 @@ mod test {
         assert!(server.privkey.bits() <= N_BITS);
         println!("{}, {}", server.pubkey.bits(), server.privkey.bits());
         println!("{:#?}", server);
+
+        let n2 = &server.pubkey * &server.pubkey;
+        println!(
+            "{:?}",
+            BigInt::from(server.pubkey).modpow(&(-BigInt::one()), &BigInt::from(n2))
+        );
     }
 }
