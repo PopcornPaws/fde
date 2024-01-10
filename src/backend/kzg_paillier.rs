@@ -191,7 +191,9 @@ impl<D: Digest> PaillierEncryptionProof<D> {
             .zip(self.w_vec.iter().zip(&self.z_vec))
             .map(|(ct, (w, z))| {
                 let aux = pow_mult_mod(&(pubkey + BigUint::one()), z, w, pubkey, &modulo);
-                // TODO -e
+                let ct_pow_e = ct.modpow(&self.challenge, &modulo);
+                let egcd = ct_pow_e.extended_gcd(&BigUint::one());
+                // TODO
                 // compute ct^e and then find the modular inverse using the
                 // extended_gcd_lcm algorithm
                 pow_mult_mod(&aux, &BigUint::one(), ct, &self.challenge, &modulo)
