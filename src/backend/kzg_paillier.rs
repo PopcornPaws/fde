@@ -104,6 +104,15 @@ fn pow_mult_mod(
     (a.modpow(a_exp, modulo) * b.modpow(b_exp, modulo)) % modulo
 }
 
+pub fn modular_inverse(num: &BigUint, modulo: &BigUint) -> Option<BigUint> {
+    let (ext_gcd, _) = num.extended_gcd_lcm(modulo);
+    if ext_gcd.gcd != BigUint::One() {
+        None,
+    } else {
+        Some(ext_gcd.x)
+    }
+}
+
 pub struct PaillierRandomParameters {
     pub u_vec: Vec<BigUint>,
     pub s_vec: Vec<BigUint>,
@@ -191,12 +200,10 @@ impl<D: Digest> PaillierEncryptionProof<D> {
             .zip(self.w_vec.iter().zip(&self.z_vec))
             .map(|(ct, (w, z))| {
                 let aux = pow_mult_mod(&(pubkey + BigUint::one()), z, w, pubkey, &modulo);
-                let ct_pow_e = ct.modpow(&self.challenge, &modulo);
-                let egcd = ct_pow_e.extended_gcd(&BigUint::one());
-                // TODO
-                // compute ct^e and then find the modular inverse using the
-                // extended_gcd_lcm algorithm
-                pow_mult_mod(&aux, &BigUint::one(), ct, &self.challenge, &modulo)
+                let ct_pow_c = ct.modpow(&self.challenge, &modulo);
+                // TODO handle unwrap
+                let ct_pow_minus_c = modular_inverse(&ct_pow_e, modulo).unwrap();
+                (aux * ct_pow_minus_c) % modulo
             })
             .collect();
         let z_scalar_vec: Vec<C::ScalarField> = self
