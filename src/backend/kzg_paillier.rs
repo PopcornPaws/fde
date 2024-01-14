@@ -7,7 +7,7 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
 use digest::Digest;
-use num_bigint::{BigUint, RandomBits};
+use num_bigint::{BigInt, BigUint, RandomBits};
 use num_integer::Integer;
 use num_prime::nt_funcs::prev_prime;
 use num_traits::One;
@@ -104,12 +104,18 @@ fn pow_mult_mod(
     (a.modpow(a_exp, modulo) * b.modpow(b_exp, modulo)) % modulo
 }
 
+// NOTE modpow cannot handle negative exponents (it panics)
+// Thus, we are using the extended GCD algorithm to find the modular inverse
+// of `num`. However, `extended_gcd_lcm` is only implemented for signed types
+// such as BigInt, hence the conversions.
 pub fn modular_inverse(num: &BigUint, modulo: &BigUint) -> Option<BigUint> {
-    let (ext_gcd, _) = num.extended_gcd_lcm(modulo);
-    if ext_gcd.gcd != BigUint::One() {
-        None,
+    let num_signed = BigInt::from(num.clone());
+    let mod_signed = BigInt::from(modulo.clone());
+    let (ext_gcd, _) = num_signed.extended_gcd_lcm(&mod_signed);
+    if ext_gcd.gcd != BigInt::one() {
+        None
     } else {
-        Some(ext_gcd.x)
+        ext_gcd.x.to_biguint()
     }
 }
 
@@ -202,8 +208,8 @@ impl<D: Digest> PaillierEncryptionProof<D> {
                 let aux = pow_mult_mod(&(pubkey + BigUint::one()), z, w, pubkey, &modulo);
                 let ct_pow_c = ct.modpow(&self.challenge, &modulo);
                 // TODO handle unwrap
-                let ct_pow_minus_c = modular_inverse(&ct_pow_e, modulo).unwrap();
-                (aux * ct_pow_minus_c) % modulo
+                let ct_pow_minus_c = modular_inverse(&ct_pow_c, &modulo).unwrap();
+                (aux * ct_pow_minus_c) % &modulo
             })
             .collect();
         let z_scalar_vec: Vec<C::ScalarField> = self
@@ -233,6 +239,8 @@ mod test {
     use ark_std::test_rng;
     use num_bigint::BigInt;
 
+    const DATA_SIZE: usize = 32;
+
     // TODO fix tests
     #[test]
     fn new_server() {
@@ -248,5 +256,19 @@ mod test {
             "{:?}",
             BigInt::from(server.pubkey).modpow(&(-BigInt::one()), &BigInt::from(n2))
         );
+    }
+
+    #[test]
+    fn flow() {
+        // KZG setup simulation
+        let rng = &mut test_rng();
+        let tau = Scalar::rand(rng); // "secret" tau
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE + 1); // generate powers of tau size DATA_SIZE
+        // new server (with encryption pubkey)
+        let server = Server::new(rng);
+        // random data to encrypt
+        let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
+        
+
     }
 }
