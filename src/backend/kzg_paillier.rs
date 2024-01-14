@@ -6,11 +6,11 @@ use ark_ff::fields::PrimeField;
 use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
+use ark_std::One;
 use digest::Digest;
-use num_bigint::{BigInt, BigUint, RandomBits};
+use num_bigint::{BigInt, BigUint, RandomBits, Sign};
 use num_integer::Integer;
 use num_prime::nt_funcs::prev_prime;
-use num_traits::One;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -52,8 +52,9 @@ fn challenge<C: CurveGroup, D: Digest>(
 }
 
 fn primes<R: Rng>(n_bits: u64, rng: &mut R) -> (BigUint, BigUint) {
-    let target_p: BigUint = RandomBits::new(n_bits).sample(rng);
-    let target_q: BigUint = RandomBits::new(n_bits).sample(rng);
+    let random_bits = RandomBits::new(n_bits);
+    let target_p: BigUint = random_bits.sample(rng);
+    let target_q: BigUint = random_bits.sample(rng);
     let p = find_next_smaller_prime(&target_p);
     let q = find_next_smaller_prime(&target_q);
     debug_assert_ne!(p, q);
@@ -104,10 +105,10 @@ fn pow_mult_mod(
     (a.modpow(a_exp, modulo) * b.modpow(b_exp, modulo)) % modulo
 }
 
-// NOTE modpow cannot handle negative exponents (it panics)
-// Thus, we are using the extended GCD algorithm to find the modular inverse
-// of `num`. However, `extended_gcd_lcm` is only implemented for signed types
-// such as BigInt, hence the conversions.
+// NOTE
+// modpow cannot handle negative exponents (it panics) Thus, we are using the extended GCD
+// algorithm to find the modular inverse of `num`. However, `extended_gcd_lcm` is only implemented
+// for signed types such as BigInt, hence the conversions.
 pub fn modular_inverse(num: &BigUint, modulo: &BigUint) -> Option<BigUint> {
     let num_signed = BigInt::from(num.clone());
     let mod_signed = BigInt::from(modulo.clone());
@@ -115,7 +116,13 @@ pub fn modular_inverse(num: &BigUint, modulo: &BigUint) -> Option<BigUint> {
     if ext_gcd.gcd != BigInt::one() {
         None
     } else {
-        ext_gcd.x.to_biguint()
+        let (sign, uint) = ext_gcd.x.into_parts();
+        debug_assert!(&uint < modulo);
+        if sign == Sign::Minus {
+            Some(modulo - uint)
+        } else {
+            Some(uint)
+        }
     }
 }
 
@@ -130,10 +137,12 @@ impl PaillierRandomParameters {
         let mut u_vec = Vec::with_capacity(size);
         let mut s_vec = Vec::with_capacity(size);
         let mut r_vec = Vec::with_capacity(size);
+        let random_bits = RandomBits::new(N_BITS);
+        let random_bits_2 = RandomBits::new(N_BITS >> 1);
         for _ in 0..size {
-            u_vec.push(RandomBits::new(N_BITS).sample(rng));
-            s_vec.push(RandomBits::new(N_BITS).sample(rng));
-            r_vec.push(RandomBits::new(N_BITS >> 1).sample(rng));
+            u_vec.push(random_bits.sample(rng));
+            s_vec.push(random_bits.sample(rng));
+            r_vec.push(random_bits_2.sample(rng));
         }
 
         Self {
@@ -144,7 +153,7 @@ impl PaillierRandomParameters {
     }
 }
 
-pub struct PaillierEncryptionProof<D> {
+pub struct Proof<D> {
     pub challenge: BigUint,
     pub ct_vec: Vec<BigUint>,
     pub w_vec: Vec<BigUint>,
@@ -152,16 +161,21 @@ pub struct PaillierEncryptionProof<D> {
     _digest: PhantomData<D>,
 }
 
-impl<D: Digest> PaillierEncryptionProof<D> {
-    pub fn new<C: Pairing>(
+impl<D: Digest> Proof<D> {
+    pub fn new<C: Pairing, R: Rng>(
         pubkey: &BigUint,
         values: &[BigUint],
-        random_params: PaillierRandomParameters,
         commitment: &C::G1,
         powers: &Powers<C>,
+        rng: &mut R,
     ) -> Self {
+        let random_params = PaillierRandomParameters::new(values.len(), rng);
         let ct_vec = batch_encrypt(values, pubkey, &random_params.u_vec);
-        let t_vec = batch_encrypt(&random_params.r_vec, pubkey, &random_params.s_vec);
+        let t_vec = dbg!(batch_encrypt(
+            &random_params.r_vec,
+            pubkey,
+            &random_params.s_vec
+        ));
         let r_scalar_vec: Vec<C::ScalarField> = random_params
             .r_vec
             .iter()
@@ -235,27 +249,29 @@ impl<D: Digest> PaillierEncryptionProof<D> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use ark_std::test_rng;
-    use num_bigint::BigInt;
+    use super::{modular_inverse, Server, N_BITS};
+    use crate::commit::kzg::Powers;
+    use crate::tests::{BlsCurve, PaillierEncryptionProof, Scalar, UniPoly};
+    use ark_ff::{BigInteger, PrimeField};
+    use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
+    use ark_std::rand::distributions::Distribution;
+    use ark_std::{test_rng, One, UniformRand};
+    use num_bigint::{BigUint, RandomBits};
 
-    const DATA_SIZE: usize = 32;
+    const DATA_SIZE: usize = 8;
 
-    // TODO fix tests
     #[test]
-    fn new_server() {
+    fn compute_modular_inverse() {
         let rng = &mut test_rng();
         let server = Server::new(rng);
-        assert!(server.pubkey.bits() <= N_BITS);
-        assert!(server.privkey.bits() <= N_BITS);
-        println!("{}, {}", server.pubkey.bits(), server.privkey.bits());
-        println!("{:#?}", server);
-
-        let n2 = &server.pubkey * &server.pubkey;
-        println!(
-            "{:?}",
-            BigInt::from(server.pubkey).modpow(&(-BigInt::one()), &BigInt::from(n2))
-        );
+        let modulo = server.pubkey;
+        let random_bits = RandomBits::new(N_BITS);
+        for _ in 0..100 {
+            let num: BigUint =
+                <RandomBits as Distribution<BigUint>>::sample(&random_bits, rng) % &modulo;
+            let inv = modular_inverse(&num, &modulo).unwrap();
+            assert_eq!((num * inv) % &modulo, BigUint::one());
+        }
     }
 
     #[test]
@@ -264,11 +280,22 @@ mod test {
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE + 1); // generate powers of tau size DATA_SIZE
-        // new server (with encryption pubkey)
+                                                                           // new server (with encryption pubkey)
         let server = Server::new(rng);
         // random data to encrypt
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
-        
+        let data_biguint = dbg!(data
+            .iter()
+            .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
+            .collect::<Vec<BigUint>>());
+        let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
+        let evaluations = Evaluations::from_vec_and_domain(data, domain);
+        let f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_poly = powers.commit_g1(&f_poly);
 
+        let proof =
+            PaillierEncryptionProof::new(&server.pubkey, &data_biguint, &com_f_poly, &powers, rng);
+
+        assert!(proof.verify(&server.pubkey, &com_f_poly, &powers));
     }
 }

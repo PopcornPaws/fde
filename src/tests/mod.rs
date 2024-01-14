@@ -15,4 +15,5 @@ pub type Elgamal = crate::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pair
 pub type PublicInput = crate::backend::kzg_elgamal::PublicInput<{ N }, BlsCurve>;
 pub type KzgElgamalProof = crate::backend::kzg_elgamal::Proof<{ N }, BlsCurve, Keccak256>;
 pub type KzgElgamalSlowProof = crate::backend::kzg_elgamal_slow::Proof<BlsCurve, UniPoly>;
+pub type PaillierEncryptionProof = crate::backend::kzg_paillier::Proof<Keccak256>;
 pub type DleqProof = crate::dleq::Proof<<BlsCurve as Pairing>::G1, Keccak256>;
