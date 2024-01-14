@@ -3,6 +3,8 @@ use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
 use ark_ec::{CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::fields::PrimeField;
+use ark_ff::BigInteger;
+use ark_poly::univariate::DensePolynomial;
 use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
@@ -163,25 +165,25 @@ pub struct Proof<D> {
 
 impl<D: Digest> Proof<D> {
     pub fn new<C: Pairing, R: Rng>(
-        pubkey: &BigUint,
         values: &[BigUint],
+        poly: &DensePolynomial<C::ScalarField>,
         commitment: &C::G1,
+        pubkey: &BigUint,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
         let random_params = PaillierRandomParameters::new(values.len(), rng);
         let ct_vec = batch_encrypt(values, pubkey, &random_params.u_vec);
-        let t_vec = dbg!(batch_encrypt(
-            &random_params.r_vec,
-            pubkey,
-            &random_params.s_vec
-        ));
+        let t_vec = batch_encrypt(&random_params.r_vec, pubkey, &random_params.s_vec);
         let r_scalar_vec: Vec<C::ScalarField> = random_params
             .r_vec
             .iter()
             .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
             .collect();
-        let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
+        let t = dbg!(<C::G1 as Msm>::msm_unchecked(
+            &powers.g1[0..r_scalar_vec.len()],
+            &r_scalar_vec
+        ));
         let challenge = challenge::<C::G1, D>(pubkey, &ct_vec, commitment, &t_vec, &t);
         let w_vec: Vec<BigUint> = random_params
             .s_vec
@@ -192,9 +194,10 @@ impl<D: Digest> Proof<D> {
         let z_vec: Vec<BigUint> = random_params
             .r_vec
             .iter()
-            .zip(values)
-            .map(|(r, val)| {
-                let aux = (&challenge * val) % pubkey;
+            .zip(&poly.coeffs)
+            .map(|(r, c)| {
+                let coeff_biguint = BigUint::from_bytes_le(&c.into_bigint().to_bytes_le());
+                let aux = (&challenge * coeff_biguint) % pubkey;
                 (r + aux) % pubkey
             })
             .collect();
@@ -209,8 +212,8 @@ impl<D: Digest> Proof<D> {
     }
     pub fn verify<C: Pairing>(
         &self,
-        pubkey: &BigUint,
         commitment: &C::G1,
+        pubkey: &BigUint,
         powers: &Powers<C>,
     ) -> bool {
         let modulo = pubkey * pubkey;
@@ -231,10 +234,13 @@ impl<D: Digest> Proof<D> {
             .iter()
             .map(|z| C::ScalarField::from_le_bytes_mod_order(&z.to_bytes_le()))
             .collect();
-        let t_expected =
-            <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec)
-                - *commitment
-                    * C::ScalarField::from_le_bytes_mod_order(&self.challenge.to_bytes_le());
+
+        // compute t
+        let challenge_scalar =
+            C::ScalarField::from_le_bytes_mod_order(&self.challenge.to_bytes_le());
+        let commitment_pow_challenge = *commitment * challenge_scalar;
+        let msm = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
+        let t_expected = dbg!(msm - commitment_pow_challenge);
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
@@ -258,7 +264,7 @@ mod test {
     use ark_std::{test_rng, One, UniformRand};
     use num_bigint::{BigUint, RandomBits};
 
-    const DATA_SIZE: usize = 8;
+    const DATA_SIZE: usize = 4;
 
     #[test]
     fn compute_modular_inverse() {
@@ -284,18 +290,24 @@ mod test {
         let server = Server::new(rng);
         // random data to encrypt
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
-        let data_biguint = dbg!(data
+        let data_biguint = data
             .iter()
             .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
-            .collect::<Vec<BigUint>>());
+            .collect::<Vec<BigUint>>();
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let com_f_poly = powers.commit_g1(&f_poly);
 
-        let proof =
-            PaillierEncryptionProof::new(&server.pubkey, &data_biguint, &com_f_poly, &powers, rng);
+        let proof = PaillierEncryptionProof::new(
+            &data_biguint,
+            &f_poly,
+            &com_f_poly,
+            &server.pubkey,
+            &powers,
+            rng,
+        );
 
-        assert!(proof.verify(&server.pubkey, &com_f_poly, &powers));
+        assert!(proof.verify(&com_f_poly, &server.pubkey, &powers));
     }
 }
