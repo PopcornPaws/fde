@@ -5,6 +5,7 @@ use ark_ec::{CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_poly::univariate::DensePolynomial;
+use ark_poly::DenseUVPolynomial;
 use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
@@ -155,18 +156,21 @@ impl PaillierRandomParameters {
     }
 }
 
-pub struct Proof<D> {
+pub struct Proof<C: Pairing, D> {
     pub challenge: BigUint,
     pub ct_vec: Vec<BigUint>,
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
+    // TODO remove these lines
+    pub t_vec: Vec<BigUint>,
+    pub t: C::G1,
     _digest: PhantomData<D>,
+    _curve: PhantomData<C>,
 }
 
-impl<D: Digest> Proof<D> {
-    pub fn new<C: Pairing, R: Rng>(
+impl<C: Pairing, D: Digest> Proof<C, D> {
+    pub fn new<R: Rng>(
         values: &[BigUint],
-        poly: &DensePolynomial<C::ScalarField>,
         commitment: &C::G1,
         pubkey: &BigUint,
         powers: &Powers<C>,
@@ -180,10 +184,7 @@ impl<D: Digest> Proof<D> {
             .iter()
             .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
             .collect();
-        let t = dbg!(<C::G1 as Msm>::msm_unchecked(
-            &powers.g1[0..r_scalar_vec.len()],
-            &r_scalar_vec
-        ));
+        let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
         let challenge = challenge::<C::G1, D>(pubkey, &ct_vec, commitment, &t_vec, &t);
         let w_vec: Vec<BigUint> = random_params
             .s_vec
@@ -194,12 +195,8 @@ impl<D: Digest> Proof<D> {
         let z_vec: Vec<BigUint> = random_params
             .r_vec
             .iter()
-            .zip(&poly.coeffs)
-            .map(|(r, c)| {
-                let coeff_biguint = BigUint::from_bytes_le(&c.into_bigint().to_bytes_le());
-                let aux = (&challenge * coeff_biguint) % pubkey;
-                (r + aux) % pubkey
-            })
+            .zip(values)
+            .map(|(r, val)| r + &challenge * val)
             .collect();
 
         Self {
@@ -207,15 +204,14 @@ impl<D: Digest> Proof<D> {
             ct_vec,
             w_vec,
             z_vec,
+            t_vec,
+            t,
             _digest: PhantomData,
+            _curve: PhantomData,
         }
     }
-    pub fn verify<C: Pairing>(
-        &self,
-        commitment: &C::G1,
-        pubkey: &BigUint,
-        powers: &Powers<C>,
-    ) -> bool {
+
+    pub fn verify(&self, commitment: &C::G1, pubkey: &BigUint, powers: &Powers<C>) -> bool {
         let modulo = pubkey * pubkey;
         let t_vec_expected: Vec<BigUint> = self
             .ct_vec
@@ -229,6 +225,7 @@ impl<D: Digest> Proof<D> {
                 (aux * ct_pow_minus_c) % &modulo
             })
             .collect();
+        assert_eq!(self.t_vec, t_vec_expected);
         let z_scalar_vec: Vec<C::ScalarField> = self
             .z_vec
             .iter()
@@ -240,7 +237,8 @@ impl<D: Digest> Proof<D> {
             C::ScalarField::from_le_bytes_mod_order(&self.challenge.to_bytes_le());
         let commitment_pow_challenge = *commitment * challenge_scalar;
         let msm = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
-        let t_expected = dbg!(msm - commitment_pow_challenge);
+        let t_expected = msm - commitment_pow_challenge;
+        assert_eq!(self.t, t_expected);
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
@@ -258,6 +256,7 @@ mod test {
     use super::{modular_inverse, Server, N_BITS};
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, PaillierEncryptionProof, Scalar, UniPoly};
+    use ark_ec::VariableBaseMSM as Msm;
     use ark_ff::{BigInteger, PrimeField};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
     use ark_std::rand::distributions::Distribution;
@@ -285,8 +284,8 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE + 1); // generate powers of tau size DATA_SIZE
-                                                                           // new server (with encryption pubkey)
+        let powers = Powers::<BlsCurve>::unsafe_setup_eip_4844(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
+                                                                                // new server (with encryption pubkey)
         let server = Server::new(rng);
         // random data to encrypt
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
@@ -299,14 +298,41 @@ mod test {
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let com_f_poly = powers.commit_g1(&f_poly);
 
-        let proof = PaillierEncryptionProof::new(
-            &data_biguint,
-            &f_poly,
-            &com_f_poly,
-            &server.pubkey,
-            &powers,
-            rng,
-        );
+        // TODO delet dis
+        /*
+        let random_bits = RandomBits::new(N_BITS >> 1);
+        let challenge: BigUint = RandomBits::new(N_BITS).sample(rng);
+        let challenge_scalar = Scalar::from_le_bytes_mod_order(&challenge.to_bytes_le());
+        let r_vec: Vec<BigUint> = (0..DATA_SIZE).map(|_| random_bits.sample(rng)).collect();
+
+        let z_vec: Vec<BigUint> = r_vec
+            .iter()
+            .zip(&f_poly.coeffs)
+            .map(|(r, f_i)| {
+                r + &challenge * BigUint::from_bytes_le(&f_i.into_bigint().to_bytes_le())
+            })
+            .collect();
+
+        let r_scalar_vec: Vec<Scalar> = r_vec
+            .iter()
+            .map(|r| Scalar::from_le_bytes_mod_order(&r.to_bytes_le()))
+            .collect();
+        let z_scalar_vec: Vec<Scalar> = z_vec
+            .iter()
+            .map(|z| Scalar::from_le_bytes_mod_order(&z.to_bytes_le()))
+            .collect();
+
+        let msm_r: <BlsCurve as ark_ec::pairing::Pairing>::G1 =
+            Msm::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
+        let msm_z: <BlsCurve as ark_ec::pairing::Pairing>::G1 =
+            Msm::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
+
+        let commitment_pow_challenge = com_f_poly * challenge_scalar;
+        assert_eq!(msm_r, msm_z - commitment_pow_challenge);
+        */
+
+        let proof =
+            PaillierEncryptionProof::new(&data_biguint, &com_f_poly, &server.pubkey, &powers, rng);
 
         assert!(proof.verify(&com_f_poly, &server.pubkey, &powers));
     }
