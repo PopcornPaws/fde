@@ -256,7 +256,7 @@ mod test {
     use ark_std::{test_rng, One, UniformRand};
     use num_bigint::{BigUint, RandomBits};
 
-    const DATA_SIZE: usize = 4;
+    const DATA_SIZE: usize = 4096;
 
     #[test]
     fn compute_modular_inverse() {
@@ -276,29 +276,25 @@ mod test {
     fn flow() {
         // KZG setup simulation
         let rng = &mut test_rng();
-        let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
-                                                                       // new server (with encryption pubkey)
+        // "secret" tau
+        let tau = Scalar::rand(rng);
+        // generate powers of tau size DATA_SIZE
+        let powers = Powers::<BlsCurve>::unsafe_setup_eip_4844(tau, DATA_SIZE);
+        // new server (with encryption pubkey)
         let server = Server::new(rng);
         // random data to encrypt
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
-        let data_biguint = data
-            .iter()
-            .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
-            .collect::<Vec<BigUint>>();
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
-        let com_f_poly = powers.commit_g1(&f_poly);
-
-        let poly_coeffs_biguint: Vec<BigUint> = f_poly
-            .coeffs
+        let data_biguint: Vec<BigUint> = evaluations.evals
             .iter()
-            .map(|coeff| BigUint::from_bytes_le(&coeff.into_bigint().to_bytes_le()))
+            .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
             .collect();
+        let com_f_poly = powers.commit_scalars_g1(&evaluations.evals);
 
         let proof =
-            PaillierEncryptionProof::new(&poly_coeffs_biguint, &com_f_poly, &server.pubkey, &powers, rng);
+            PaillierEncryptionProof::new(&data_biguint, &com_f_poly, &server.pubkey, &powers, rng);
 
         assert!(proof.verify(&com_f_poly, &server.pubkey, &powers));
     }

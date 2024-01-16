@@ -36,18 +36,26 @@ impl<C: Pairing> Powers<C> {
         Self { g1, g2 }
     }
 
+    pub fn commit_scalars_g1(&self, scalars: &[C::ScalarField]) -> C::G1 {
+        Msm::msm_unchecked(&self.g1[0..scalars.len()], scalars)
+    }
+
+    pub fn commit_scalars_g2(&self, scalars: &[C::ScalarField]) -> C::G2 {
+        Msm::msm_unchecked(&self.g2[0..scalars.len()], scalars)
+    }
+
     pub fn commit_g1<P: DenseUVPolynomial<C::ScalarField, Point = C::ScalarField>>(
         &self,
         poly: &P,
     ) -> C::G1 {
-        Msm::msm_unchecked(&self.g1[0..poly.coeffs().len()], poly.coeffs())
+        self.commit_scalars_g1(poly.coeffs())
     }
 
     pub fn commit_g2<P: DenseUVPolynomial<C::ScalarField, Point = C::ScalarField>>(
         &self,
         poly: &P,
     ) -> C::G2 {
-        Msm::msm_unchecked(&self.g2[0..poly.coeffs().len()], poly.coeffs())
+        self.commit_scalars_g2(poly.coeffs())
     }
 
     pub fn g1_tau(&self) -> C::G1Affine {
