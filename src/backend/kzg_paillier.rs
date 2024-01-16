@@ -284,8 +284,8 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup_eip_4844(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
-                                                                                // new server (with encryption pubkey)
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, DATA_SIZE); // generate powers of tau size DATA_SIZE
+                                                                       // new server (with encryption pubkey)
         let server = Server::new(rng);
         // random data to encrypt
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
@@ -298,41 +298,14 @@ mod test {
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let com_f_poly = powers.commit_g1(&f_poly);
 
-        // TODO delet dis
-        /*
-        let random_bits = RandomBits::new(N_BITS >> 1);
-        let challenge: BigUint = RandomBits::new(N_BITS).sample(rng);
-        let challenge_scalar = Scalar::from_le_bytes_mod_order(&challenge.to_bytes_le());
-        let r_vec: Vec<BigUint> = (0..DATA_SIZE).map(|_| random_bits.sample(rng)).collect();
-
-        let z_vec: Vec<BigUint> = r_vec
+        let poly_coeffs_biguint: Vec<BigUint> = f_poly
+            .coeffs
             .iter()
-            .zip(&f_poly.coeffs)
-            .map(|(r, f_i)| {
-                r + &challenge * BigUint::from_bytes_le(&f_i.into_bigint().to_bytes_le())
-            })
+            .map(|coeff| BigUint::from_bytes_le(&coeff.into_bigint().to_bytes_le()))
             .collect();
-
-        let r_scalar_vec: Vec<Scalar> = r_vec
-            .iter()
-            .map(|r| Scalar::from_le_bytes_mod_order(&r.to_bytes_le()))
-            .collect();
-        let z_scalar_vec: Vec<Scalar> = z_vec
-            .iter()
-            .map(|z| Scalar::from_le_bytes_mod_order(&z.to_bytes_le()))
-            .collect();
-
-        let msm_r: <BlsCurve as ark_ec::pairing::Pairing>::G1 =
-            Msm::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
-        let msm_z: <BlsCurve as ark_ec::pairing::Pairing>::G1 =
-            Msm::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
-
-        let commitment_pow_challenge = com_f_poly * challenge_scalar;
-        assert_eq!(msm_r, msm_z - commitment_pow_challenge);
-        */
 
         let proof =
-            PaillierEncryptionProof::new(&data_biguint, &com_f_poly, &server.pubkey, &powers, rng);
+            PaillierEncryptionProof::new(&poly_coeffs_biguint, &com_f_poly, &server.pubkey, &powers, rng);
 
         assert!(proof.verify(&com_f_poly, &server.pubkey, &powers));
     }
