@@ -161,9 +161,6 @@ pub struct Proof<C: Pairing, D> {
     pub ct_vec: Vec<BigUint>,
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
-    // TODO remove these lines
-    pub t_vec: Vec<BigUint>,
-    pub t: C::G1,
     _digest: PhantomData<D>,
     _curve: PhantomData<C>,
 }
@@ -204,8 +201,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             ct_vec,
             w_vec,
             z_vec,
-            t_vec,
-            t,
             _digest: PhantomData,
             _curve: PhantomData,
         }
@@ -225,7 +220,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
                 (aux * ct_pow_minus_c) % &modulo
             })
             .collect();
-        assert_eq!(self.t_vec, t_vec_expected);
         let z_scalar_vec: Vec<C::ScalarField> = self
             .z_vec
             .iter()
@@ -238,7 +232,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         let commitment_pow_challenge = *commitment * challenge_scalar;
         let msm = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
         let t_expected = msm - commitment_pow_challenge;
-        assert_eq!(self.t, t_expected);
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
