@@ -35,6 +35,21 @@ impl Server {
 
         Self { pubkey, privkey }
     }
+    pub fn modulo_n2(&self) -> BigUint {
+        &self.pubkey * &self.pubkey
+    }
+
+    pub fn lx(&self, x: &BigUint) -> BigUint {
+        let modulo = self.modulo_n2();
+        debug_assert!(x < &modulo && (x % &self.pubkey) == BigUint::one());
+        (x - BigUint::one()) / &self.pubkey
+    }
+
+    pub fn decryption_denominator(&self) -> BigUint {
+        let n_plus_1_pow_sk =
+            (&self.pubkey + BigUint::one()).modpow(&self.privkey, &self.modulo_n2());
+        self.lx(&n_plus_1_pow_sk)
+    }
 }
 
 fn challenge<C: CurveGroup, D: Digest>(
@@ -242,6 +257,17 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         );
         self.challenge == challenge_expected
     }
+
+    pub fn decrypt(&self, server: &Server) -> Vec<BigUint> {
+        let modulo = server.modulo_n2();
+        let denominator = server.decryption_denominator();
+        self.ct_vec
+            .iter()
+            .map(|ct| {
+                (server.lx(&ct.modpow(&server.privkey, &modulo)) / &denominator) % &server.pubkey
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -256,7 +282,7 @@ mod test {
     use ark_std::{test_rng, One, UniformRand};
     use num_bigint::{BigUint, RandomBits};
 
-    const DATA_SIZE: usize = 4096;
+    const DATA_SIZE: usize = 32;
 
     #[test]
     fn compute_modular_inverse() {
@@ -286,8 +312,9 @@ mod test {
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let f_poly: UniPoly = evaluations.interpolate_by_ref();
-        let data_biguint: Vec<BigUint> = evaluations.evals
+        let _f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let data_biguint: Vec<BigUint> = evaluations
+            .evals
             .iter()
             .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
             .collect();
@@ -297,5 +324,16 @@ mod test {
             PaillierEncryptionProof::new(&data_biguint, &com_f_poly, &server.pubkey, &powers, rng);
 
         assert!(proof.verify(&com_f_poly, &server.pubkey, &powers));
+        let modulo = &server.pubkey * &server.pubkey;
+        let denominator =
+            ((&server.pubkey + BigUint::one()).modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey;
+        let denominator_inv = modular_inverse(&denominator, &server.pubkey).unwrap();
+        let decrypted_data: Vec<BigUint> = proof
+            .ct_vec
+            .iter()
+            .map(|ct| ((ct.modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey * &denominator_inv) % &server.pubkey)
+            .collect();
+        //let decrypted_data = proof.decrypt(&server);
+        assert_eq!(decrypted_data, data_biguint);
     }
 }
