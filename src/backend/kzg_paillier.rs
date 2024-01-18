@@ -6,6 +6,7 @@ use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::DenseUVPolynomial;
+use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
 use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
@@ -54,6 +55,7 @@ impl Server {
 
 fn challenge<C: CurveGroup, D: Digest>(
     pubkey: &BigUint,
+    vanishing_poly: &DensePolynomial<C::ScalarField>,
     ct_slice: &[BigUint],
     commitment: &C,
     t_slice: &[BigUint],
@@ -61,6 +63,7 @@ fn challenge<C: CurveGroup, D: Digest>(
 ) -> BigUint {
     let mut hasher = Hasher::<D>::new();
     hasher.update(pubkey);
+    hasher.update(&vanishing_poly.coeffs);
     ct_slice.iter().for_each(|ct| hasher.update(ct));
     hasher.update(commitment);
     t_slice.iter().for_each(|t| hasher.update(t));
@@ -176,6 +179,7 @@ pub struct Proof<C: Pairing, D> {
     pub ct_vec: Vec<BigUint>,
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
+    pub com_f_q_poly: C::G1,
     _digest: PhantomData<D>,
     _curve: PhantomData<C>,
 }
@@ -183,11 +187,17 @@ pub struct Proof<C: Pairing, D> {
 impl<C: Pairing, D: Digest> Proof<C, D> {
     pub fn new<R: Rng>(
         values: &[BigUint],
-        commitment: &C::G1,
+        f_poly: &DensePolynomial<C::ScalarField>,
+        f_s_poly: &DensePolynomial<C::ScalarField>,
+        com_f_poly: &C::G1,
+        domain: &GeneralEvaluationDomain<C::ScalarField>,
         pubkey: &BigUint,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
+        let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
+        let q_poly = &(f_poly - f_s_poly) / &vanishing_poly;
+        let com_q_poly = powers.commit_g1(&q_poly);
         let random_params = PaillierRandomParameters::new(values.len(), rng);
         let ct_vec = batch_encrypt(values, pubkey, &random_params.u_vec);
         let t_vec = batch_encrypt(&random_params.r_vec, pubkey, &random_params.s_vec);
@@ -197,7 +207,7 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
             .collect();
         let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
-        let challenge = challenge::<C::G1, D>(pubkey, &ct_vec, commitment, &t_vec, &t);
+        let challenge = challenge::<C::G1, D>(pubkey, &ct_vec, com_f_poly, &t_vec, &t);
         let w_vec: Vec<BigUint> = random_params
             .s_vec
             .iter()
@@ -216,12 +226,13 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             ct_vec,
             w_vec,
             z_vec,
+            com_f_s_poly,
             _digest: PhantomData,
             _curve: PhantomData,
         }
     }
 
-    pub fn verify(&self, commitment: &C::G1, pubkey: &BigUint, powers: &Powers<C>) -> bool {
+    pub fn verify(&self, com_f_poly: &C::G1, com_f_s_poly: &C::G1, pubkey: &BigUint, powers: &Powers<C>) -> bool {
         let modulo = pubkey * pubkey;
         let t_vec_expected: Vec<BigUint> = self
             .ct_vec
