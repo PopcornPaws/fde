@@ -1,7 +1,7 @@
 use crate::commit::kzg::Powers;
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
-use ark_ec::{CurveGroup, VariableBaseMSM as Msm};
+use ark_ec::{Group, CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_poly::univariate::DensePolynomial;
@@ -57,7 +57,8 @@ fn challenge<C: CurveGroup, D: Digest>(
     pubkey: &BigUint,
     vanishing_poly: &DensePolynomial<C::ScalarField>,
     ct_slice: &[BigUint],
-    commitment: &C,
+    com_f_poly: &C,
+    com_f_s_poly: &C,
     t_slice: &[BigUint],
     t: &C,
 ) -> BigUint {
@@ -65,7 +66,8 @@ fn challenge<C: CurveGroup, D: Digest>(
     hasher.update(pubkey);
     hasher.update(&vanishing_poly.coeffs);
     ct_slice.iter().for_each(|ct| hasher.update(ct));
-    hasher.update(commitment);
+    hasher.update(com_f_poly);
+    hasher.update(com_f_s_poly);
     t_slice.iter().for_each(|t| hasher.update(t));
     hasher.update(t);
 
@@ -179,7 +181,7 @@ pub struct Proof<C: Pairing, D> {
     pub ct_vec: Vec<BigUint>,
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
-    pub com_f_q_poly: C::G1,
+    pub com_q_poly: C::G1,
     _digest: PhantomData<D>,
     _curve: PhantomData<C>,
 }
@@ -190,6 +192,7 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         f_poly: &DensePolynomial<C::ScalarField>,
         f_s_poly: &DensePolynomial<C::ScalarField>,
         com_f_poly: &C::G1,
+        com_f_s_poly: &C::G1,
         domain: &GeneralEvaluationDomain<C::ScalarField>,
         pubkey: &BigUint,
         powers: &Powers<C>,
@@ -207,7 +210,15 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
             .collect();
         let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
-        let challenge = challenge::<C::G1, D>(pubkey, &ct_vec, com_f_poly, &t_vec, &t);
+        let challenge = challenge::<C::G1, D>(
+            pubkey,
+            &vanishing_poly,
+            &ct_vec,
+            com_f_poly,
+            com_f_s_poly,
+            &t_vec,
+            &t,
+        );
         let w_vec: Vec<BigUint> = random_params
             .s_vec
             .iter()
@@ -226,13 +237,29 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             ct_vec,
             w_vec,
             z_vec,
-            com_f_s_poly,
+            com_q_poly,
             _digest: PhantomData,
             _curve: PhantomData,
         }
     }
 
-    pub fn verify(&self, com_f_poly: &C::G1, com_f_s_poly: &C::G1, pubkey: &BigUint, powers: &Powers<C>) -> bool {
+    pub fn verify(
+        &self,
+        com_f_poly: &C::G1,
+        com_f_s_poly: &C::G1,
+        domain: &GeneralEvaluationDomain<C::ScalarField>,
+        pubkey: &BigUint,
+        powers: &Powers<C>,
+    ) -> bool {
+        let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
+        let com_vanishing_poly_g2 = powers.commit_g2(&vanishing_poly);
+        let lhs_pairing = C::pairing(self.com_q_poly, com_vanishing_poly_g2);
+        let rhs_pairing = C::pairing(*com_f_poly - com_f_s_poly, C::G2::generator());
+        if lhs_pairing != rhs_pairing {
+            println!("failed pairing check");
+            return false
+        }
+
         let modulo = pubkey * pubkey;
         let t_vec_expected: Vec<BigUint> = self
             .ct_vec
@@ -255,14 +282,16 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         // compute t
         let challenge_scalar =
             C::ScalarField::from_le_bytes_mod_order(&self.challenge.to_bytes_le());
-        let commitment_pow_challenge = *commitment * challenge_scalar;
+        let commitment_pow_challenge = *com_f_s_poly * challenge_scalar;
         let msm = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
         let t_expected = msm - commitment_pow_challenge;
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
+            &vanishing_poly,
             &self.ct_vec,
-            commitment,
+            com_f_poly,
+            com_f_s_poly,
             &t_vec_expected,
             &t_expected,
         );
@@ -289,11 +318,13 @@ mod test {
     use ark_ec::VariableBaseMSM as Msm;
     use ark_ff::{BigInteger, PrimeField};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
+    use ark_std::collections::HashMap;
     use ark_std::rand::distributions::Distribution;
     use ark_std::{test_rng, One, UniformRand};
     use num_bigint::{BigUint, RandomBits};
 
     const DATA_SIZE: usize = 32;
+    const SUBSET_SIZE: usize = 16;
 
     #[test]
     fn compute_modular_inverse() {
@@ -322,27 +353,60 @@ mod test {
         // random data to encrypt
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
-        let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let _f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let evaluations = Evaluations::from_vec_and_domain(data.clone(), domain);
+        let f_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_poly = powers.commit_scalars_g1(&evaluations.evals);
+
+        let index_map: HashMap<Scalar, usize> =
+            domain.elements().enumerate().map(|(i, e)| (e, i)).collect();
+        let domain_s = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
+        let indices: Vec<usize> = domain_s
+            .elements()
+            .map(|elem| *index_map.get(&elem).unwrap())
+            .collect();
+        let data_s: Vec<Scalar> = indices.into_iter().map(|i| data[i]).collect();
+        let evaluations_s = Evaluations::from_vec_and_domain(data_s, domain_s);
+        let f_s_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_s_poly = powers.commit_scalars_g1(&evaluations_s.evals);
+
         let data_biguint: Vec<BigUint> = evaluations
             .evals
             .iter()
             .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
             .collect();
-        let com_f_poly = powers.commit_scalars_g1(&evaluations.evals);
 
-        let proof =
-            PaillierEncryptionProof::new(&data_biguint, &com_f_poly, &server.pubkey, &powers, rng);
+        let proof = PaillierEncryptionProof::new(
+            &data_biguint,
+            &f_poly,
+            &f_s_poly,
+            &com_f_poly,
+            &com_f_s_poly,
+            &domain_s,
+            &server.pubkey,
+            &powers,
+            rng,
+        );
 
-        assert!(proof.verify(&com_f_poly, &server.pubkey, &powers));
+        assert!(proof.verify(
+            &com_f_poly,
+            &com_f_s_poly,
+            &domain_s,
+            &server.pubkey,
+            &powers
+        ));
         let modulo = &server.pubkey * &server.pubkey;
-        let denominator =
-            ((&server.pubkey + BigUint::one()).modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey;
+        let denominator = ((&server.pubkey + BigUint::one()).modpow(&server.privkey, &modulo)
+            - BigUint::one())
+            / &server.pubkey;
         let denominator_inv = modular_inverse(&denominator, &server.pubkey).unwrap();
         let decrypted_data: Vec<BigUint> = proof
             .ct_vec
             .iter()
-            .map(|ct| ((ct.modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey * &denominator_inv) % &server.pubkey)
+            .map(|ct| {
+                ((ct.modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey
+                    * &denominator_inv)
+                    % &server.pubkey
+            })
             .collect();
         //let decrypted_data = proof.decrypt(&server);
         assert_eq!(decrypted_data, data_biguint);
