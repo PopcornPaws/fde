@@ -13,8 +13,8 @@ const N: usize = Scalar::MODULUS_BIT_SIZE as usize / fde::encrypt::elgamal::MAX_
 
 type Scalar = <BlsCurve as Pairing>::ScalarField;
 type UniPoly = DensePolynomial<Scalar>;
-type Proof = fde::backend::kzg_elgamal::Proof<{ N }, BlsCurve, sha3::Keccak256>;
-type PublicInput = fde::backend::kzg_elgamal::PublicInput<{ N }, BlsCurve>;
+type Proof = fde::veck::kzg_elgamal::Proof<{ N }, BlsCurve, sha3::Keccak256>;
+type PublicInput = fde::veck::kzg_elgamal::PublicInput<{ N }, BlsCurve>;
 
 fn bench_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("kzg-elgamal");

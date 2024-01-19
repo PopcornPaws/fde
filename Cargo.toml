@@ -54,14 +54,9 @@ criterion = "0.5"
 sha3 = "0.10"
 
 [[bench]]
-name = "kzg-elgamal-backend"
+name = "kzg-elgamal-veck"
 path = "benches/kzg_elgamal.rs"
 harness = false
-
-#[[bench]]
-#name = "kzg-elgamal-slow-backend"
-#path = "benches/kzg_elgamal_slow.rs"
-#harness = false
 
 [[bench]]
 name = "split-elgamal-encryption"
