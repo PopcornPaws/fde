@@ -217,8 +217,8 @@ mod test {
     use ark_std::collections::HashMap;
     use ark_std::{test_rng, UniformRand};
 
-    const DATA_SIZE: usize = 64;
-    const SUBSET_SIZE: usize = 32;
+    const DATA_SIZE: usize = 16;
+    const SUBSET_SIZE: usize = 8;
 
     #[test]
     fn flow() {

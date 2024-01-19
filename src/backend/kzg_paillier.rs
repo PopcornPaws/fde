@@ -184,8 +184,6 @@ pub struct Proof<C: Pairing, D> {
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
     pub com_q_poly: C::G1,
-    // TODO delete
-    pub t: C::G1,
     _digest: PhantomData<D>,
     _curve: PhantomData<C>,
 }
@@ -244,7 +242,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             w_vec,
             z_vec,
             com_q_poly,
-            t,
             _digest: PhantomData,
             _curve: PhantomData,
         }
@@ -293,7 +290,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         let commitment_pow_challenge = *com_f_s_poly * challenge_scalar;
         let msm = powers.commit_scalars_g1(&z_scalar_vec);
         let t_expected = msm - commitment_pow_challenge;
-        assert_eq!(self.t, t_expected);
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
