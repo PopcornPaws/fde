@@ -260,4 +260,23 @@ mod test {
             ));
         }
     }
+
+    #[test]
+    fn commitment_equality() {
+        let rng = &mut test_rng();
+        let degree: usize = 16;
+        let domain = GeneralEvaluationDomain::new(degree).unwrap();
+        let tau = Scalar::rand(rng);
+        let powers = Powers::<BlsCurve>::unsafe_setup(tau, degree);
+        let powers_eip = Powers::<BlsCurve>::unsafe_setup_eip_4844(tau, degree);
+
+        let coeffs = (0..degree).map(|_| Scalar::rand(rng)).collect();
+        let poly = UniPoly { coeffs };
+
+        let evals = poly.evaluate_over_domain_by_ref(domain);
+        let com_p = powers.commit_g1(&poly);
+        let com_p_eip = powers_eip.commit_scalars_g1(&evals.evals);
+
+        assert_eq!(com_p, com_p_eip);
+    }
 }
