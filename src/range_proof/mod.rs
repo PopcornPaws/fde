@@ -1,9 +1,18 @@
-// NOTE code mostly taken from https://github.com/roynalnaruto/range_proof
+//! This crate contains a proof-of-concept implementation of the
+//! [Boneh-Fisch-Gabizon-Williamson](https://hackmd.io/@dabo/B1U4kx8XI) range proof.
+//!
+//! The protocol relies on KZG commitments, thus it fits our KZG-based protocols perfectly. Further
+//! discussion of the proof can be found
+//! [here](https://decentralizedthoughts.github.io/2020-03-03-range-proofs-from-polynomial-commitments-reexplained/).
+//!
+//! This implementation is a modernized/updated version of the code found
+//! [here](https://github.com/roynalnaruto/range_proof).
 mod poly;
 mod utils;
 
 use crate::commit::kzg::{Kzg, Powers};
 use crate::hash::Hasher;
+use crate::Error;
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
@@ -11,6 +20,19 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use ark_std::UniformRand;
 use digest::Digest;
+use thiserror::Error as ErrorT;
+
+#[derive(ErrorT, Debug, PartialEq)]
+pub enum RangeProofError {
+    #[error("aggregated witness pairings are not equal")]
+    AggregateWitnessCheckFailed,
+    #[error("shifted witness pairings are not equal")]
+    ShiftedWitnessCheckFailed,
+    #[error("input value is greater than the upper range bound")]
+    InputOutOfBounds,
+    #[error("polynomial is nonzero")]
+    ExpectedZeroPolynomial,
+}
 
 const PROOF_DOMAIN_SEP: &[u8] = b"fde range proof";
 
@@ -44,10 +66,16 @@ pub struct RangeProof<C: Pairing, D> {
 
 impl<C: Pairing, D: Digest> RangeProof<C, D> {
     // prove 0 <= z < 2^n
-    pub fn new<R: Rng>(z: C::ScalarField, n: usize, powers: &Powers<C>, rng: &mut R) -> Self {
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n).expect("valid domain");
-        let domain_2n =
-            GeneralEvaluationDomain::<C::ScalarField>::new(2 * n).expect("valid domain");
+    pub fn new<R: Rng>(
+        z: C::ScalarField,
+        n: usize,
+        powers: &Powers<C>,
+        rng: &mut R,
+    ) -> Result<Self, Error> {
+        let domain =
+            GeneralEvaluationDomain::<C::ScalarField>::new(n).ok_or(Error::InvalidFftDomain(n))?;
+        let domain_2n = GeneralEvaluationDomain::<C::ScalarField>::new(2 * n)
+            .ok_or(Error::InvalidFftDomain(2 * n))?;
 
         // random scalars
         let r = C::ScalarField::rand(rng);
@@ -73,9 +101,9 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         let aggregation_challenge = hasher.next_scalar(b"aggregation_challenge");
 
         // aggregate w1, w2 and w3 to compute quotient polynomial
-        let (w1_poly, w2_poly) = poly::w1_w2(&domain, &f_poly, &g_poly);
-        let w3_poly = poly::w3(&domain, &domain_2n, &g_poly);
-        let q_poly = poly::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, tau);
+        let (w1_poly, w2_poly) = poly::w1_w2(&domain, &f_poly, &g_poly)?;
+        let w3_poly = poly::w3(&domain, &domain_2n, &g_poly)?;
+        let q_poly = poly::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, tau)?;
         let q_commitment = powers.commit_g1(&q_poly);
 
         let rho_omega = rho * domain.group_gen();
@@ -115,16 +143,17 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
             shifted: shifted_proof.into_affine(),
         };
 
-        Self {
+        Ok(Self {
             evaluations,
             commitments,
             proofs,
             _digest: PhantomData,
-        }
+        })
     }
 
-    pub fn verify(&self, n: usize, powers: &Powers<C>) -> bool {
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n).expect("valid domain");
+    pub fn verify(&self, n: usize, powers: &Powers<C>) -> Result<(), Error> {
+        let domain =
+            GeneralEvaluationDomain::<C::ScalarField>::new(n).ok_or(Error::InvalidFftDomain(n))?;
 
         let mut hasher = Hasher::<D>::new();
         hasher.update(&PROOF_DOMAIN_SEP);
@@ -151,7 +180,7 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         );
         // calculate w(ρ) that should zero since w(X) is after all a zero polynomial
         if sum != self.evaluations.w_cap {
-            return false;
+            return Err(RangeProofError::ExpectedZeroPolynomial.into());
         }
 
         // check aggregate witness commitment
@@ -184,14 +213,22 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
             powers,
         );
 
-        aggregation_kzg_check && shifted_kzg_check
+        if !aggregation_kzg_check {
+            Err(RangeProofError::AggregateWitnessCheckFailed.into())
+        } else if !shifted_kzg_check {
+            Err(RangeProofError::ShiftedWitnessCheckFailed.into())
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use super::RangeProofError;
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, RangeProof, Scalar};
+    use crate::Error;
     use ark_std::{test_rng, UniformRand};
 
     const LOG_2_UPPER_BOUND: usize = 8; // 2^8
@@ -204,12 +241,12 @@ mod test {
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(100u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
-        assert!(proof.verify(LOG_2_UPPER_BOUND, &powers));
+        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
+        assert!(proof.verify(LOG_2_UPPER_BOUND, &powers).is_ok());
 
         let z = Scalar::from(255u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
-        assert!(proof.verify(LOG_2_UPPER_BOUND, &powers));
+        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
+        assert!(proof.verify(LOG_2_UPPER_BOUND, &powers).is_ok());
     }
 
     #[test]
@@ -220,12 +257,14 @@ mod test {
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(100u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
-        assert!(!proof.verify(LOG_2_UPPER_BOUND - 1, &powers));
+        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
+        assert_eq!(
+            proof.verify(LOG_2_UPPER_BOUND - 1, &powers),
+            Err(Error::RangeProof(RangeProofError::ExpectedZeroPolynomial))
+        );
     }
 
     #[test]
-    #[should_panic(expected = "remainder poly should be zero")]
     fn range_proof_with_too_large_z_fails_1() {
         // KZG setup simulation
         let rng = &mut test_rng();
@@ -233,12 +272,13 @@ mod test {
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(256u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
-        assert!(!proof.verify(LOG_2_UPPER_BOUND - 1, &powers));
+        assert_eq!(
+            RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap_err(),
+            Error::RangeProof(RangeProofError::ExpectedZeroPolynomial)
+        );
     }
 
     #[test]
-    #[should_panic(expected = "remainder poly should be zero")]
     fn range_proof_with_too_large_z_fails_2() {
         // KZG setup simulation
         let rng = &mut test_rng();
@@ -246,7 +286,9 @@ mod test {
         let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(300u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng);
-        assert!(!proof.verify(LOG_2_UPPER_BOUND - 1, &powers));
+        assert_eq!(
+            RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap_err(),
+            Error::RangeProof(RangeProofError::ExpectedZeroPolynomial)
+        );
     }
 }

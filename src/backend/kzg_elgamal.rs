@@ -38,7 +38,7 @@ impl<const N: usize, C: Pairing, D: Clone + Digest> PublicInput<N, C, D> {
             let split_eval = SplitScalar::from(*eval);
             let rp = split_eval
                 .splits()
-                .map(|s| RangeProof::new(s, MAX_BITS, powers, rng));
+                .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).unwrap());
             let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(encryption_pk, rng);
             let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
                 eval,
@@ -238,7 +238,7 @@ mod test {
         input
             .range_proofs
             .iter()
-            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers))));
+            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers).is_ok())));
 
         let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
 
@@ -270,7 +270,7 @@ mod test {
         sub_input
             .range_proofs
             .iter()
-            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers))));
+            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers).is_ok())));
 
         let proof =
             KzgElgamalProof::new(&f_poly, &f_s_poly, &encryption_sk, &sub_input, &powers, rng);

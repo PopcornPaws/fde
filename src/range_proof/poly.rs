@@ -1,3 +1,5 @@
+use super::RangeProofError;
+use crate::Error;
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain};
@@ -54,9 +56,9 @@ pub fn w1_w2<S: PrimeField>(
     domain: &GeneralEvaluationDomain<S>,
     f_poly: &DensePolynomial<S>,
     g_poly: &DensePolynomial<S>,
-) -> (DensePolynomial<S>, DensePolynomial<S>) {
+) -> Result<(DensePolynomial<S>, DensePolynomial<S>), Error> {
     let one = S::one();
-    let w_n_minus_1 = domain.elements().last().unwrap();
+    let w_n_minus_1 = domain.elements().last().ok_or(Error::InvalidFftDomain(0))?;
 
     // polynomial: P(x) = x - w^(n-1)
     let x_minus_w_n_minus_1_poly = DensePolynomial::from_coefficients_slice(&[-w_n_minus_1, one]);
@@ -75,19 +77,20 @@ pub fn w1_w2<S: PrimeField>(
     let one_minus_g_poly = &one_poly - g_poly;
     let w2_poly = &(&(g_poly * &one_minus_g_poly) * &x_n_minus_1_poly) / &x_minus_w_n_minus_1_poly;
 
-    (w1_poly, w2_poly)
+    Ok((w1_poly, w2_poly))
 }
 
 pub fn w3<S: PrimeField>(
     domain: &GeneralEvaluationDomain<S>,
     domain_2n: &GeneralEvaluationDomain<S>,
     g_poly: &DensePolynomial<S>,
-) -> DensePolynomial<S> {
+) -> Result<DensePolynomial<S>, Error> {
     // w3: [g(X) - 2g(Xw)] * [1 - g(X) + 2g(Xw)] * [X - w^(n-1)]
     // degree of g = n - 1
     // degree of w3 = (2n - 1) + (2n - 1) + 1 = 4n - 1
     // the new domain can be of size 4n
-    let domain_4n = GeneralEvaluationDomain::<S>::new(2 * domain_2n.size()).unwrap();
+    let domain_4n = GeneralEvaluationDomain::<S>::new(2 * domain_2n.size())
+        .ok_or(Error::InvalidFftDomain(2 * domain_2n.size()))?;
 
     // find evaluations of g in the new domain
     let mut g_evals = domain_4n.fft(g_poly);
@@ -101,7 +104,7 @@ pub fn w3<S: PrimeField>(
     g_evals.push(g_evals[3]);
 
     // calculate evaluations of w3
-    let w_n_minus_1 = domain.elements().last().unwrap();
+    let w_n_minus_1 = domain.elements().last().ok_or(Error::InvalidFftDomain(0))?;
     let two = S::from(2u8);
     let w3_evals: Vec<S> = domain_4n
         .elements()
@@ -114,7 +117,9 @@ pub fn w3<S: PrimeField>(
         })
         .collect();
 
-    DensePolynomial::from_coefficients_vec(domain_4n.ifft(&w3_evals))
+    Ok(DensePolynomial::from_coefficients_vec(
+        domain_4n.ifft(&w3_evals),
+    ))
 }
 
 pub fn w_cap<S: PrimeField>(
@@ -135,16 +140,19 @@ pub fn quotient<S: PrimeField>(
     w2_poly: &DensePolynomial<S>,
     w3_poly: &DensePolynomial<S>,
     tau: S,
-) -> DensePolynomial<S> {
+) -> Result<DensePolynomial<S>, Error> {
     // find linear combination of w1, w2, w3
     let lc = w1_poly + &(w2_poly * tau) + w3_poly * tau.square();
     let (quotient_poly, rem) = lc
         .divide_by_vanishing_poly(*domain)
-        .expect("valid vanishing poly");
+        .ok_or(Error::InvalidFftDomain(domain.size()))?;
     // since the linear combination should also satisfy all roots of unity, q_rem should be a zero
     // polynomial
-    debug_assert!(rem.is_zero(), "remainder poly should be zero");
-    quotient_poly
+    if !rem.is_zero() {
+        Err(RangeProofError::ExpectedZeroPolynomial.into())
+    } else {
+        Ok(quotient_poly)
+    }
 }
 
 #[cfg(test)]
@@ -236,7 +244,7 @@ mod test {
         let f_poly = super::f(&domain, z, r);
         let g_poly = super::g(&domain, z, alpha, beta);
 
-        let (w1_poly, w2_poly) = super::w1_w2(&domain, &f_poly, &g_poly);
+        let (w1_poly, w2_poly) = super::w1_w2(&domain, &f_poly, &g_poly).unwrap();
 
         // both w1 and w2 should evaluate to 0 at x = 1
         assert_eq!(w1_poly.evaluate(&one), zero);
@@ -283,7 +291,7 @@ mod test {
         let beta = Scalar::rand(rng);
         let g_poly = super::g(&domain, z, alpha, beta);
 
-        let w3_poly = super::w3(&domain, &domain_2n, &g_poly);
+        let w3_poly = super::w3(&domain, &domain_2n, &g_poly).unwrap();
 
         // w3 should evaluate to 0 at all roots of unity for original domain
         for root in domain.elements() {
@@ -334,9 +342,9 @@ mod test {
         let z = Scalar::from(68u8);
         let f_poly = super::f(&domain, z, r);
         let g_poly = super::g(&domain, z, alpha, beta);
-        let (w1_poly, w2_poly) = super::w1_w2(&domain, &f_poly, &g_poly);
-        let w3_poly = super::w3(&domain, &domain_2n, &g_poly);
-        let q_poly = super::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, t);
+        let (w1_poly, w2_poly) = super::w1_w2(&domain, &f_poly, &g_poly).unwrap();
+        let w3_poly = super::w3(&domain, &domain_2n, &g_poly).unwrap();
+        let q_poly = super::quotient(&domain, &w1_poly, &w2_poly, &w3_poly, t).unwrap();
         let w_cap_poly = super::w_cap(&domain, &f_poly, &q_poly, rho);
 
         // compute commitments
@@ -401,8 +409,8 @@ mod test {
         let beta = Scalar::rand(rng);
         let f_poly = super::f(&domain, z, r);
         let g_poly = super::g(&domain, z, alpha, beta);
-        let (_, w2) = super::w1_w2(&domain, &f_poly, &g_poly);
-        let w3 = super::w3(&domain, &domain_2n, &g_poly);
+        let (_, w2) = super::w1_w2(&domain, &f_poly, &g_poly).unwrap();
+        let w3 = super::w3(&domain, &domain_2n, &g_poly).unwrap();
 
         let tau = Scalar::rand(rng);
         let rho = Scalar::rand(rng);
