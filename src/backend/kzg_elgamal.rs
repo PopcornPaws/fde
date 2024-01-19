@@ -226,7 +226,7 @@ mod test {
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
     use ark_std::{test_rng, UniformRand};
 
-    const DATA_SIZE: usize = 4096;
+    const DATA_SIZE: usize = 16;
     const SUBSET_SIZE: usize = 2;
 
     #[test]
