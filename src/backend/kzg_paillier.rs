@@ -1,7 +1,7 @@
 use crate::commit::kzg::Powers;
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
-use ark_ec::{Group, CurveGroup, VariableBaseMSM as Msm};
+use ark_ec::{CurveGroup, Group, VariableBaseMSM as Msm};
 use ark_ff::fields::PrimeField;
 use ark_ff::BigInteger;
 use ark_poly::univariate::DensePolynomial;
@@ -182,6 +182,8 @@ pub struct Proof<C: Pairing, D> {
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
     pub com_q_poly: C::G1,
+    // TODO delete
+    pub t: C::G1,
     _digest: PhantomData<D>,
     _curve: PhantomData<C>,
 }
@@ -200,7 +202,8 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
     ) -> Self {
         let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
         let q_poly = &(f_poly - f_s_poly) / &vanishing_poly;
-        let com_q_poly = powers.commit_g1(&q_poly);
+        let q_poly_evals = q_poly.evaluate_over_domain_by_ref(*domain);
+        let com_q_poly = powers.commit_scalars_g1(&q_poly_evals.evals);
         let random_params = PaillierRandomParameters::new(values.len(), rng);
         let ct_vec = batch_encrypt(values, pubkey, &random_params.u_vec);
         let t_vec = batch_encrypt(&random_params.r_vec, pubkey, &random_params.s_vec);
@@ -209,7 +212,7 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             .iter()
             .map(|r| C::ScalarField::from_le_bytes_mod_order(&r.to_bytes_le()))
             .collect();
-        let t = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..r_scalar_vec.len()], &r_scalar_vec);
+        let t = powers.commit_scalars_g1(&r_scalar_vec);
         let challenge = challenge::<C::G1, D>(
             pubkey,
             &vanishing_poly,
@@ -238,6 +241,7 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             w_vec,
             z_vec,
             com_q_poly,
+            t,
             _digest: PhantomData,
             _curve: PhantomData,
         }
@@ -252,12 +256,13 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         powers: &Powers<C>,
     ) -> bool {
         let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
-        let com_vanishing_poly_g2 = powers.commit_g2(&vanishing_poly);
+        let vanishing_poly_evals = vanishing_poly.evaluate_over_domain_by_ref(*domain);
+        let com_vanishing_poly_g2 = powers.commit_scalars_g2(&vanishing_poly_evals.evals);
         let lhs_pairing = C::pairing(self.com_q_poly, com_vanishing_poly_g2);
         let rhs_pairing = C::pairing(*com_f_poly - com_f_s_poly, C::G2::generator());
         if lhs_pairing != rhs_pairing {
             println!("failed pairing check");
-            return false
+            return false;
         }
 
         let modulo = pubkey * pubkey;
@@ -283,8 +288,9 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         let challenge_scalar =
             C::ScalarField::from_le_bytes_mod_order(&self.challenge.to_bytes_le());
         let commitment_pow_challenge = *com_f_s_poly * challenge_scalar;
-        let msm = <C::G1 as Msm>::msm_unchecked(&powers.g1[0..z_scalar_vec.len()], &z_scalar_vec);
+        let msm = powers.commit_scalars_g1(&z_scalar_vec);
         let t_expected = msm - commitment_pow_challenge;
+        assert_eq!(self.t, t_expected);
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
@@ -324,7 +330,7 @@ mod test {
     use num_bigint::{BigUint, RandomBits};
 
     const DATA_SIZE: usize = 32;
-    const SUBSET_SIZE: usize = 16;
+    const SUBSET_SIZE: usize = 8;
 
     #[test]
     fn compute_modular_inverse() {
@@ -355,7 +361,6 @@ mod test {
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data.clone(), domain);
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
-        let com_f_poly = powers.commit_scalars_g1(&evaluations.evals);
 
         let index_map: HashMap<Scalar, usize> =
             domain.elements().enumerate().map(|(i, e)| (e, i)).collect();
@@ -367,9 +372,10 @@ mod test {
         let data_s: Vec<Scalar> = indices.into_iter().map(|i| data[i]).collect();
         let evaluations_s = Evaluations::from_vec_and_domain(data_s, domain_s);
         let f_s_poly: UniPoly = evaluations.interpolate_by_ref();
+        let com_f_poly = powers.commit_scalars_g1(&evaluations_s.evals);
         let com_f_s_poly = powers.commit_scalars_g1(&evaluations_s.evals);
 
-        let data_biguint: Vec<BigUint> = evaluations
+        let data_biguint: Vec<BigUint> = evaluations_s
             .evals
             .iter()
             .map(|d| BigUint::from_bytes_le(&d.into_bigint().to_bytes_le()))
