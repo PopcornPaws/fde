@@ -1,12 +1,10 @@
 use crate::commit::kzg::Powers;
 use crate::hash::Hasher;
 use ark_ec::pairing::Pairing;
-use ark_ec::{CurveGroup, Group, VariableBaseMSM as Msm};
+use ark_ec::{CurveGroup, Group};
 use ark_ff::fields::PrimeField;
-use ark_ff::BigInteger;
 use ark_poly::univariate::DensePolynomial;
-use ark_poly::DenseUVPolynomial;
-use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
+use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_std::marker::PhantomData;
 use ark_std::rand::distributions::Distribution;
 use ark_std::rand::Rng;
@@ -110,11 +108,15 @@ fn batch_encrypt<T: AsRef<[BigUint]>>(values: T, key: &BigUint, randoms: T) -> V
 }
 
 #[cfg(feature = "parallel")]
-fn batch_encrypt<T: AsRef<[BigUint]>>(values: T, key: &BigUint, randoms: T) -> Vec<BigUint> {
+fn batch_encrypt<T>(values: T, key: &BigUint, randoms: T) -> Vec<BigUint>
+where
+    T: AsRef<[BigUint]> + rayon::iter::IntoParallelIterator,
+{
     values
-        .iter()
-        .zip(randoms)
-        .map(|val, rand| encrypt(val, key, rand))
+        .as_ref()
+        .par_iter()
+        .zip(randoms.as_ref())
+        .map(|(val, rand)| encrypt(val, key, rand))
         .collect()
 }
 
@@ -189,6 +191,7 @@ pub struct Proof<C: Pairing, D> {
 }
 
 impl<C: Pairing, D: Digest> Proof<C, D> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<R: Rng>(
         values: &[BigUint],
         f_poly: &DensePolynomial<C::ScalarField>,
@@ -321,7 +324,6 @@ mod test {
     use super::{modular_inverse, Server, N_BITS};
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, PaillierEncryptionProof, Scalar, UniPoly};
-    use ark_ec::VariableBaseMSM as Msm;
     use ark_ff::{BigInteger, PrimeField};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
     use ark_std::collections::HashMap;
