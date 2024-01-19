@@ -12,8 +12,9 @@ pub type SplitScalar = crate::encrypt::elgamal::SplitScalar<{ N }, Scalar>;
 pub type UniPoly = DensePolynomial<Scalar>;
 
 pub type Elgamal = crate::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pairing>::G1>;
-pub type DleqProof = crate::dleq::Proof<<BlsCurve as Pairing>::G1, Keccak256>;
-pub type PublicInput = crate::backend::kzg_elgamal::PublicInput<{ N }, BlsCurve>;
+pub type PublicInput = crate::backend::kzg_elgamal::PublicInput<{ N }, BlsCurve, Keccak256>;
 pub type KzgElgamalProof = crate::backend::kzg_elgamal::Proof<{ N }, BlsCurve, Keccak256>;
 pub type KzgElgamalSlowProof = crate::backend::kzg_elgamal_slow::Proof<BlsCurve, UniPoly>;
+pub type DleqProof = crate::dleq::Proof<<BlsCurve as Pairing>::G1, Keccak256>;
+pub type RangeProof = crate::range_proof::RangeProof<BlsCurve, Keccak256>;
 pub type PaillierEncryptionProof = crate::backend::kzg_paillier::Proof<BlsCurve, Keccak256>;
