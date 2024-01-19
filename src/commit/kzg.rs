@@ -3,6 +3,7 @@ use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
+use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_poly_commit::DenseUVPolynomial;
 use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
@@ -26,18 +27,39 @@ impl<C: Pairing> Powers<C> {
         Self { g1, g2 }
     }
 
+    pub fn unsafe_setup_eip_4844(tau: C::ScalarField, range: usize) -> Self {
+        let mut g1 = Vec::new();
+        let mut g2 = Vec::new();
+        let domain = GeneralEvaluationDomain::new(range).unwrap();
+        let lagrange_evaluations = domain.evaluate_all_lagrange_coefficients(tau);
+        lagrange_evaluations.into_iter().for_each(|exponent| {
+            g1.push((<C::G1Affine as AffineRepr>::generator() * exponent).into_affine());
+            g2.push((<C::G2Affine as AffineRepr>::generator() * exponent).into_affine());
+        });
+
+        Self { g1, g2 }
+    }
+
+    pub fn commit_scalars_g1(&self, scalars: &[C::ScalarField]) -> C::G1 {
+        Msm::msm_unchecked(&self.g1[0..scalars.len()], scalars)
+    }
+
+    pub fn commit_scalars_g2(&self, scalars: &[C::ScalarField]) -> C::G2 {
+        Msm::msm_unchecked(&self.g2[0..scalars.len()], scalars)
+    }
+
     pub fn commit_g1<P: DenseUVPolynomial<C::ScalarField, Point = C::ScalarField>>(
         &self,
         poly: &P,
     ) -> C::G1 {
-        Msm::msm_unchecked(&self.g1[0..poly.coeffs().len()], poly.coeffs())
+        self.commit_scalars_g1(poly.coeffs())
     }
 
     pub fn commit_g2<P: DenseUVPolynomial<C::ScalarField, Point = C::ScalarField>>(
         &self,
         poly: &P,
     ) -> C::G2 {
-        Msm::msm_unchecked(&self.g2[0..poly.coeffs().len()], poly.coeffs())
+        self.commit_scalars_g2(poly.coeffs())
     }
 
     pub fn g1_tau(&self) -> C::G1Affine {

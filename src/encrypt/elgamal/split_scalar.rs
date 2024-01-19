@@ -93,7 +93,6 @@ mod test {
     fn scalar_splitting() {
         let scalar = Scalar::zero();
         let split_scalar = SplitScalar::from(scalar);
-        println!("{:?}", split_scalar);
         let reconstructed_scalar = split_scalar.reconstruct();
         assert_eq!(scalar, reconstructed_scalar);
 
