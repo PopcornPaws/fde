@@ -202,7 +202,7 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         rng: &mut R,
     ) -> Self {
         let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
-        let q_poly = &(f_poly - f_s_poly) / &vanishing_poly;
+        let q_poly = dbg!(&(f_poly - f_s_poly)) / dbg!(&vanishing_poly);
         let q_poly_evals = q_poly.evaluate_over_domain_by_ref(*domain);
         let com_q_poly = powers.commit_scalars_g1(&q_poly_evals.evals);
         let random_params = PaillierRandomParameters::new(values.len(), rng);
@@ -369,8 +369,8 @@ mod test {
             .collect();
         let data_s: Vec<Scalar> = indices.into_iter().map(|i| data[i]).collect();
         let evaluations_s = Evaluations::from_vec_and_domain(data_s, domain_s);
-        let f_s_poly: UniPoly = evaluations.interpolate_by_ref();
-        let com_f_poly = powers.commit_scalars_g1(&evaluations_s.evals);
+        let f_s_poly: UniPoly = evaluations_s.interpolate_by_ref();
+        let com_f_poly = powers.commit_scalars_g1(&evaluations.evals);
         let com_f_s_poly = powers.commit_scalars_g1(&evaluations_s.evals);
 
         let data_biguint: Vec<BigUint> = evaluations_s
