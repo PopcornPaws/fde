@@ -15,14 +15,14 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use digest::Digest;
 
-pub struct PublicInput<const N: usize, C: Pairing, D: Digest> {
+pub struct PublicInput<const N: usize, C: Pairing, D: Clone + Digest> {
     pub ciphers: Vec<Cipher<C::G1>>,
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
     pub range_proofs: Vec<[RangeProof<C, D>; N]>,
     pub random_encryption_points: Vec<C::G1Affine>,
 }
 
-impl<const N: usize, C: Pairing, D: Digest> PublicInput<N, C, D> {
+impl<const N: usize, C: Pairing, D: Clone + Digest> PublicInput<N, C, D> {
     pub fn new<R: Rng>(
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
@@ -69,8 +69,7 @@ impl<const N: usize, C: Pairing, D: Digest> PublicInput<N, C, D> {
             ciphers.push(self.ciphers[index]);
             short_ciphers.push(self.short_ciphers[index]);
             random_encryption_points.push(self.random_encryption_points[index]);
-            // TODO why is this not clonable???
-            //range_proofs.push(self.range_proofs[index].clone());
+            range_proofs.push(self.range_proofs[index].clone());
         }
 
         Self {
@@ -94,7 +93,7 @@ pub struct Proof<const N: usize, C: Pairing, D> {
 impl<const N: usize, C, D> Proof<N, C, D>
 where
     C: Pairing,
-    D: Digest,
+    D: Digest + Clone,
 {
     pub fn new<R: Rng>(
         f_poly: &DensePolynomial<C::ScalarField>,
@@ -268,6 +267,10 @@ mod test {
         let com_f_s_poly = powers.commit_g1(&f_s_poly);
 
         let sub_input = input.subset(&sub_indices);
+        sub_input
+            .range_proofs
+            .iter()
+            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers))));
 
         let proof =
             KzgElgamalProof::new(&f_poly, &f_s_poly, &encryption_sk, &sub_input, &powers, rng);
