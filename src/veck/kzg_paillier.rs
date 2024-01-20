@@ -308,12 +308,17 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
     }
 
     pub fn decrypt(&self, server: &Server) -> Vec<BigUint> {
-        let modulo = server.modulo_n2();
-        let denominator = server.decryption_denominator();
+        let modulo = &server.pubkey * &server.pubkey;
+        let denominator = ((&server.pubkey + BigUint::one()).modpow(&server.privkey, &modulo)
+            - BigUint::one())
+            / &server.pubkey;
+        let denominator_inv = modular_inverse(&denominator, &server.pubkey).unwrap();
         self.ct_vec
             .iter()
             .map(|ct| {
-                (server.lx(&ct.modpow(&server.privkey, &modulo)) / &denominator) % &server.pubkey
+                ((ct.modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey
+                    * &denominator_inv)
+                    % &server.pubkey
             })
             .collect()
     }
@@ -402,21 +407,8 @@ mod test {
             &server.pubkey,
             &powers
         ));
-        let modulo = &server.pubkey * &server.pubkey;
-        let denominator = ((&server.pubkey + BigUint::one()).modpow(&server.privkey, &modulo)
-            - BigUint::one())
-            / &server.pubkey;
-        let denominator_inv = modular_inverse(&denominator, &server.pubkey).unwrap();
-        let decrypted_data: Vec<BigUint> = proof
-            .ct_vec
-            .iter()
-            .map(|ct| {
-                ((ct.modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey
-                    * &denominator_inv)
-                    % &server.pubkey
-            })
-            .collect();
-        //let decrypted_data = proof.decrypt(&server);
+
+        let decrypted_data = proof.decrypt(&server);
         assert_eq!(decrypted_data, data_biguint);
     }
 }
