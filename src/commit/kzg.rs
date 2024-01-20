@@ -9,6 +9,9 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
+pub struct PowersOfTau;
+pub struct LagrangeBasis;
+
 pub struct Powers<C: Pairing> {
     pub g1: Vec<C::G1Affine>,
     pub g2: Vec<C::G2Affine>,

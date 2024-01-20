@@ -17,10 +17,10 @@ fn subset_pairing_check<C: Pairing>(
     subdomain: &GeneralEvaluationDomain<C::ScalarField>,
     powers: &Powers<C>,
 ) {
-    let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
+    let vanishing_poly = DensePolynomial::from(subdomain.vanishing_polynomial());
     let quotient = &(phi - phi_s) / &vanishing_poly;
     let quotient_expected = (phi - phi_s)
-        .divide_by_vanishing_poly(*domain)
+        .divide_by_vanishing_poly(*subdomain)
         .unwrap()
         .0;
     assert_eq!(quotient, quotient_expected);
@@ -33,10 +33,10 @@ fn subset_pairing_check<C: Pairing>(
     //let rhs_pairing = C::pairing(com_f - com_f_s, C::G2::generator());
     //assert_eq!(lhs_pairing, rhs_pairing);
 
-    let phi_evals = phi.evaluate_over_domain_by_ref(*subdomain);
-    let phi_s_evals = phi_s.evaluate_over_domain_by_ref(*subdomain);
-    let q_evals = quotient.evaluate_over_domain_by_ref(*subdomain);
-    let v_evals = vanishing_poly.evaluate_over_domain_by_ref(*subdomain);
+    let phi_evals = phi.evaluate_over_domain_by_ref(*domain);
+    let phi_s_evals = phi_s.evaluate_over_domain_by_ref(*domain);
+    let q_evals = quotient.evaluate_over_domain_by_ref(*domain);
+    let v_evals = vanishing_poly.evaluate_over_domain_by_ref(*domain);
     let com_q = powers.commit_scalars_g1(&q_evals.evals);
     let com_f = powers.commit_scalars_g1(&phi_evals.evals);
     let com_f_s = powers.commit_scalars_g1(&phi_s_evals.evals);
@@ -46,18 +46,20 @@ fn subset_pairing_check<C: Pairing>(
     assert_eq!(lhs_pairing, rhs_pairing);
 }
 
-// TODO move index map out of here so that it's not recomputed every time
-fn subset_evals<S: FftField>(
-    evaluations: &Evaluations<S>,
-    subdomain: GeneralEvaluationDomain<S>,
-) -> Evaluations<S> {
-    debug_assert!(evaluations.domain().size() >= subdomain.size());
-    let index_map: HashMap<S, usize> = evaluations
-        .domain()
+fn index_map<S: FftField>(domain: GeneralEvaluationDomain<S>) -> HashMap<S, usize> {
+        domain
         .elements()
         .enumerate()
         .map(|(i, e)| (e, i))
-        .collect();
+        .collect()
+}
+
+fn subset_evals<S: FftField>(
+    evaluations: &Evaluations<S>,
+    index_map: &HashMap<S, usize>,
+    subdomain: GeneralEvaluationDomain<S>,
+) -> Evaluations<S> {
+    debug_assert!(evaluations.domain().size() >= subdomain.size());
     let indices = subdomain
         .elements()
         .map(|e| *index_map.get(&e).unwrap())
@@ -75,21 +77,22 @@ mod test {
     use crate::tests::{BlsCurve, Scalar};
     use ark_std::{test_rng, UniformRand};
 
-    const DATA_SIZE: usize = 32;
-    const SUBSET_SIZE: usize = 16;
+    const DATA_SIZE: usize = 8;
+    const SUBSET_SIZE: usize = 4;
 
     #[test]
     fn mivan() {
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng);
-        let powers = Powers::<BlsCurve>::unsafe_setup_eip_4844(tau, DATA_SIZE + 1);
+        let powers = Powers::<BlsCurve>::unsafe_setup_eip_4844(tau, DATA_SIZE);
 
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let subdomain = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
 
         let data = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let subset_evaluations = subset_evals(&evaluations, subdomain);
+        let index_map = index_map(domain);
+        let subset_evaluations = subset_evals(&evaluations, &index_map, subdomain);
 
         let phi = evaluations.interpolate_by_ref();
         let phi_s = subset_evaluations.interpolate_by_ref();
@@ -103,7 +106,7 @@ mod test {
             .zip(&subset_evaluations.evals)
             .map(|(&r, &v)| r + challenge * v)
             .collect();
-        let com_f_s_poly = powers.commit_scalars_g1(&subset_evaluations.evals);
+        let com_f_s_poly = powers.commit_scalars_g1(&evaluations.evals);
         let commitment_pow_challenge = com_f_s_poly * challenge;
         let com_z = powers.commit_scalars_g1(&z_scalars);
         let t_expected = com_z - commitment_pow_challenge;
