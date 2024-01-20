@@ -184,8 +184,6 @@ pub struct Proof<C: Pairing, D> {
     pub w_vec: Vec<BigUint>,
     pub z_vec: Vec<BigUint>,
     pub com_q_poly: C::G1,
-    pub t_vec: Vec<BigUint>,
-    pub t: C::G1,
     _digest: PhantomData<D>,
     _curve: PhantomData<C>,
 }
@@ -246,8 +244,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
             w_vec,
             z_vec,
             com_q_poly,
-            t_vec,
-            t,
             _digest: PhantomData,
             _curve: PhantomData,
         }
@@ -286,7 +282,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
                 (aux * ct_pow_minus_c) % &modulo
             })
             .collect();
-        assert_eq!(self.t_vec, t_vec_expected, "t_vec is shit");
         let z_scalar_vec: Vec<C::ScalarField> = self
             .z_vec
             .iter()
@@ -299,7 +294,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
         let commitment_pow_challenge = *com_f_s_poly * challenge_scalar;
         let msm = powers.commit_scalars_g1(&z_scalar_vec);
         let t_expected = msm - commitment_pow_challenge;
-        assert_eq!(self.t, t_expected, "t is shit");
 
         let challenge_expected = challenge::<C::G1, D>(
             pubkey,
@@ -338,8 +332,8 @@ mod test {
     use ark_std::{test_rng, One, UniformRand};
     use num_bigint::{BigUint, RandomBits};
 
-    const DATA_SIZE: usize = 32;
-    const SUBSET_SIZE: usize = 8;
+    const DATA_SIZE: usize = 16;
+    const SUBSET_SIZE: usize = 16;
 
     #[test]
     fn compute_modular_inverse() {

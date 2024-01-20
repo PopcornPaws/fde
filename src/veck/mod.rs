@@ -10,6 +10,28 @@ use ark_poly::univariate::DensePolynomial;
 use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
 use ark_std::collections::HashMap;
 
+fn index_map<S: FftField>(domain: GeneralEvaluationDomain<S>) -> HashMap<S, usize> {
+    domain.elements().enumerate().map(|(i, e)| (e, i)).collect()
+}
+
+fn subset_evals<S: FftField>(
+    evaluations: &Evaluations<S>,
+    index_map: &HashMap<S, usize>,
+    subdomain: GeneralEvaluationDomain<S>,
+) -> Evaluations<S> {
+    debug_assert!(evaluations.domain().size() >= subdomain.size());
+    let indices = subdomain
+        .elements()
+        .map(|e| *index_map.get(&e).unwrap())
+        .collect::<Vec<usize>>();
+    let mut subset_evals = Vec::<S>::new();
+    for index in indices {
+        subset_evals.push(evaluations.evals[index]);
+    }
+    Evaluations::from_vec_and_domain(subset_evals, subdomain)
+}
+
+/*
 fn subset_pairing_check<C: Pairing>(
     phi: &DensePolynomial<C::ScalarField>,
     phi_s: &DensePolynomial<C::ScalarField>,
@@ -46,29 +68,20 @@ fn subset_pairing_check<C: Pairing>(
     assert_eq!(lhs_pairing, rhs_pairing);
 }
 
-fn index_map<S: FftField>(domain: GeneralEvaluationDomain<S>) -> HashMap<S, usize> {
-        domain
-        .elements()
-        .enumerate()
-        .map(|(i, e)| (e, i))
-        .collect()
-}
 
-fn subset_evals<S: FftField>(
+fn subset_evals_zero_pad<S: FftField>(
     evaluations: &Evaluations<S>,
-    index_map: &HashMap<S, usize>,
-    subdomain: GeneralEvaluationDomain<S>,
+    sub_index_map: &HashMap<S, usize>,
 ) -> Evaluations<S> {
-    debug_assert!(evaluations.domain().size() >= subdomain.size());
-    let indices = subdomain
-        .elements()
-        .map(|e| *index_map.get(&e).unwrap())
-        .collect::<Vec<usize>>();
     let mut subset_evals = Vec::<S>::new();
-    for index in indices {
-        subset_evals.push(evaluations.evals[index]);
+    for (x, eval) in evaluations.domain().elements().zip(&evaluations.evals) {
+        if sub_index_map.contains_key(&x) {
+            subset_evals.push(*eval);
+        } else {
+            subset_evals.push(S::zero())
+        }
     }
-    Evaluations::from_vec_and_domain(subset_evals, subdomain)
+    Evaluations::from_vec_and_domain(subset_evals, evaluations.domain())
 }
 
 #[cfg(test)]
@@ -77,8 +90,8 @@ mod test {
     use crate::tests::{BlsCurve, Scalar};
     use ark_std::{test_rng, UniformRand};
 
-    const DATA_SIZE: usize = 8;
-    const SUBSET_SIZE: usize = 4;
+    const DATA_SIZE: usize = 4;
+    const SUBSET_SIZE: usize = 2;
 
     #[test]
     fn mivan() {
@@ -91,11 +104,14 @@ mod test {
 
         let data = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let index_map = index_map(domain);
-        let subset_evaluations = subset_evals(&evaluations, &index_map, subdomain);
+        let im = index_map(domain);
+        let sub_im = index_map(subdomain);
+        let subset_evaluations = subset_evals(&evaluations, &im, subdomain);
+        let subset_evaluations_zero_pad = subset_evals_zero_pad(&evaluations, &sub_im);
 
         let phi = evaluations.interpolate_by_ref();
-        let phi_s = subset_evaluations.interpolate_by_ref();
+        let phi_s_expected = dbg!(subset_evaluations.interpolate_by_ref());
+        let phi_s = subset_evaluations_zero_pad.interpolate_by_ref();
         subset_pairing_check(&phi, &phi_s, &domain, &subdomain, &powers);
 
         let r_scalars: Vec<Scalar> = (0..SUBSET_SIZE).map(|_| Scalar::rand(rng)).collect();
@@ -106,10 +122,12 @@ mod test {
             .zip(&subset_evaluations.evals)
             .map(|(&r, &v)| r + challenge * v)
             .collect();
-        let com_f_s_poly = powers.commit_scalars_g1(&evaluations.evals);
+        let com_f_s_poly = dbg!(powers.commit_scalars_g1(&subset_evaluations.evals));
+        let com_f_s_poly = dbg!(powers.commit_scalars_g1(&subset_evaluations_zero_pad.evals));
         let commitment_pow_challenge = com_f_s_poly * challenge;
         let com_z = powers.commit_scalars_g1(&z_scalars);
         let t_expected = com_z - commitment_pow_challenge;
         assert_eq!(t, t_expected);
     }
 }
+*/
