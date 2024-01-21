@@ -60,9 +60,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::tests::{DleqProof, G1Affine, Scalar};
+    use super::*;
+    use crate::tests::{G1Affine, Scalar, TestCurve, TestHash};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand};
+
+    type DleqProof = Proof<<TestCurve as Pairing>::G1, TestHash>;
 
     #[test]
     fn completeness() {

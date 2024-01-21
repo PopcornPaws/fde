@@ -5,7 +5,7 @@ pub use split_scalar::SplitScalar;
 use utils::shift_scalar;
 
 use super::EncryptionEngine;
-use ark_ec::{AffineRepr, CurveGroup}; //, ScalarMul, VariableBaseMSM as Msm};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::marker::PhantomData;
 use ark_std::ops::{Add, Mul};
 use ark_std::rand::Rng;
@@ -122,10 +122,13 @@ impl<C: CurveGroup> ExponentialElgamal<C> {
 
 #[cfg(test)]
 mod test {
-    use crate::encrypt::EncryptionEngine;
-    use crate::tests::{Elgamal, G1Affine, Scalar, SplitScalar};
+    use super::*;
+    use crate::tests::{G1Affine, Scalar, TestCurve, N};
+    use ark_ec::pairing::Pairing;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand};
+
+    type Elgamal = ExponentialElgamal<<TestCurve as Pairing>::G1>;
 
     #[test]
     fn exponential_elgamal() {
@@ -197,7 +200,7 @@ mod test {
     fn split_encryption() {
         let rng = &mut test_rng();
         let scalar = Scalar::rand(rng);
-        let split_scalar = SplitScalar::from(scalar);
+        let split_scalar = SplitScalar::<{ N }, Scalar>::from(scalar);
         let secret = Scalar::rand(rng);
         let encryption_key = (G1Affine::generator() * secret).into_affine();
 

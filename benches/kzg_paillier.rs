@@ -19,7 +19,7 @@ fn bench_proof(c: &mut Criterion) {
     let tau = Scalar::rand(rng);
     let powers = Powers::<BlsCurve>::unsafe_setup(tau, data_size + 1);
 
-    todo!()
+    todo!();
     group.finish();
 }
 

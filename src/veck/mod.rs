@@ -1,16 +1,17 @@
-pub mod kzg_elgamal;
-#[cfg(feature = "paillier")]
-pub mod kzg_paillier;
+pub mod kzg;
 
 use ark_ff::FftField;
 use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
 use ark_std::collections::HashMap;
 
-fn index_map<S: FftField>(domain: GeneralEvaluationDomain<S>) -> HashMap<S, usize> {
+/// Maps the evaluation domain elements (roots of unity - keys) to their respective index (value) in the FFT domain.
+pub fn index_map<S: FftField>(domain: GeneralEvaluationDomain<S>) -> HashMap<S, usize> {
     domain.elements().enumerate().map(|(i, e)| (e, i)).collect()
 }
 
-fn subset_indices<S: FftField>(
+/// Returns the indices of domain elements in the original domain, given they are also present in
+/// the subset domain.
+pub fn subset_indices<S: FftField>(
     index_map: &HashMap<S, usize>,
     subdomain: &GeneralEvaluationDomain<S>,
 ) -> Vec<usize> {
@@ -20,7 +21,8 @@ fn subset_indices<S: FftField>(
         .collect()
 }
 
-fn subset_evals<S: FftField>(
+/// Returns the evaluations respective to the subdomain elements.
+pub fn subset_evals<S: FftField>(
     evaluations: &Evaluations<S>,
     indices: &[usize],
     subdomain: GeneralEvaluationDomain<S>,
@@ -34,6 +36,7 @@ fn subset_evals<S: FftField>(
 }
 
 /*
+// TODO some paillier subset toy examples
 use crate::commit::kzg::Powers;
 use ark_ec::pairing::Pairing;
 use ark_ec::Group;

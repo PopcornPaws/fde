@@ -7,7 +7,7 @@ edition = "2021"
 opt-level = 3
 
 [features]
-default = ["std", "parallel", "paillier"]
+default = ["std", "parallel"]
 std = [
     "ark-crypto-primitives/std",
     "ark-ec/std",
@@ -26,11 +26,6 @@ parallel = [
     "ark-std/parallel",
     "rayon"
 ]
-paillier = [
-    "num-bigint",
-    "num-integer",
-    "num-prime",
-]
 
 [dependencies]
 ark-crypto-primitives = { version = "0.4", default-features = false, features = ["signature"] }
@@ -40,9 +35,9 @@ ark-poly = { version = "0.4", default-features = false }
 ark-poly-commit = { version = "0.4", default-features = false }
 ark-serialize = { version = "0.4", default-features = false }
 ark-std = { version = "0.4", default-features = false }
-num-bigint = { version = "0.4", features = ["rand"], optional = true }
-num-integer = { version = "0.1", optional = true }
-num-prime = { version = "0.4", optional = true }
+num-bigint = { version = "0.4", features = ["rand"] }
+num-integer = "0.1"
+num-prime = "0.4"
 digest = { version = "0.10", default-features = false }
 rayon = { version = "1.8", optional = true }
 thiserror = "1"
@@ -53,12 +48,12 @@ ark-secp256k1 = "0.4"
 criterion = "0.5"
 sha3 = "0.10"
 
-[[bench]]
-name = "kzg-elgamal-veck"
-path = "benches/kzg_elgamal.rs"
-harness = false
-
-[[bench]]
-name = "split-elgamal-encryption"
-path = "benches/elgamal.rs"
-harness = false
+#[[bench]]
+#name = "kzg-elgamal-veck"
+#path = "benches/kzg_elgamal.rs"
+#harness = false
+#
+#[[bench]]
+#name = "split-elgamal-encryption"
+#path = "benches/elgamal.rs"
+#harness = false

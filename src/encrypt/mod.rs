@@ -2,10 +2,6 @@ pub mod elgamal;
 
 use ark_std::rand::Rng;
 
-// other possible encryption engines
-//pub struct Generic;
-//pub struct Paillier;
-
 pub trait EncryptionEngine {
     type EncryptionKey;
     type DecryptionKey;

@@ -19,7 +19,9 @@ pub enum Error {
     #[error("couldn't generate valid FFT domain of size {0}")]
     InvalidFftDomain(usize),
     #[error(transparent)]
-    RangeProof(#[from] range_proof::RangeProofError),
+    RangeProof(#[from] range_proof::Error),
     #[error(transparent)]
-    KzgElgamalProofError(#[from] veck::kzg_elgamal::KzgElgamalError),
+    KzgElgamalProofError(#[from] veck::kzg::elgamal::Error),
+    #[error(transparent)]
+    KzgPaillierProofError(#[from] veck::kzg::paillier::Error),
 }

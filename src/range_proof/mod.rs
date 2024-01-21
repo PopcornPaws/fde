@@ -12,7 +12,7 @@ mod utils;
 
 use crate::commit::kzg::{Kzg, Powers};
 use crate::hash::Hasher;
-use crate::Error;
+use crate::Error as CrateError;
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
@@ -23,7 +23,7 @@ use digest::Digest;
 use thiserror::Error as ErrorT;
 
 #[derive(ErrorT, Debug, PartialEq)]
-pub enum RangeProofError {
+pub enum Error {
     #[error("aggregated witness pairings are not equal")]
     AggregateWitnessCheckFailed,
     #[error("shifted witness pairings are not equal")]
@@ -71,11 +71,11 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         n: usize,
         powers: &Powers<C>,
         rng: &mut R,
-    ) -> Result<Self, Error> {
-        let domain =
-            GeneralEvaluationDomain::<C::ScalarField>::new(n).ok_or(Error::InvalidFftDomain(n))?;
+    ) -> Result<Self, CrateError> {
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n)
+            .ok_or(CrateError::InvalidFftDomain(n))?;
         let domain_2n = GeneralEvaluationDomain::<C::ScalarField>::new(2 * n)
-            .ok_or(Error::InvalidFftDomain(2 * n))?;
+            .ok_or(CrateError::InvalidFftDomain(2 * n))?;
 
         // random scalars
         let r = C::ScalarField::rand(rng);
@@ -151,9 +151,9 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         })
     }
 
-    pub fn verify(&self, n: usize, powers: &Powers<C>) -> Result<(), Error> {
-        let domain =
-            GeneralEvaluationDomain::<C::ScalarField>::new(n).ok_or(Error::InvalidFftDomain(n))?;
+    pub fn verify(&self, n: usize, powers: &Powers<C>) -> Result<(), CrateError> {
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(n)
+            .ok_or(CrateError::InvalidFftDomain(n))?;
 
         let mut hasher = Hasher::<D>::new();
         hasher.update(&PROOF_DOMAIN_SEP);
@@ -180,7 +180,7 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         );
         // calculate w(ρ) that should zero since w(X) is after all a zero polynomial
         if sum != self.evaluations.w_cap {
-            return Err(RangeProofError::ExpectedZeroPolynomial.into());
+            return Err(Error::ExpectedZeroPolynomial.into());
         }
 
         // check aggregate witness commitment
@@ -214,9 +214,9 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         );
 
         if !aggregation_kzg_check {
-            Err(RangeProofError::AggregateWitnessCheckFailed.into())
+            Err(Error::AggregateWitnessCheckFailed.into())
         } else if !shifted_kzg_check {
-            Err(RangeProofError::ShiftedWitnessCheckFailed.into())
+            Err(Error::ShiftedWitnessCheckFailed.into())
         } else {
             Ok(())
         }
@@ -225,10 +225,10 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
 
 #[cfg(test)]
 mod test {
-    use super::RangeProofError;
+    use super::*;
     use crate::commit::kzg::Powers;
-    use crate::tests::{BlsCurve, RangeProof, Scalar};
-    use crate::Error;
+    use crate::tests::{Scalar, TestCurve, TestHash};
+    use crate::Error as CrateError;
     use ark_std::{test_rng, UniformRand};
 
     const LOG_2_UPPER_BOUND: usize = 8; // 2^8
@@ -238,14 +238,16 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
+        let powers = Powers::<TestCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(100u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
+        let proof =
+            RangeProof::<TestCurve, TestHash>::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
         assert!(proof.verify(LOG_2_UPPER_BOUND, &powers).is_ok());
 
         let z = Scalar::from(255u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
+        let proof =
+            RangeProof::<TestCurve, TestHash>::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
         assert!(proof.verify(LOG_2_UPPER_BOUND, &powers).is_ok());
     }
 
@@ -254,13 +256,14 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
+        let powers = Powers::<TestCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(100u32);
-        let proof = RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
+        let proof =
+            RangeProof::<TestCurve, TestHash>::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap();
         assert_eq!(
             proof.verify(LOG_2_UPPER_BOUND - 1, &powers),
-            Err(Error::RangeProof(RangeProofError::ExpectedZeroPolynomial))
+            Err(CrateError::RangeProof(Error::ExpectedZeroPolynomial))
         );
     }
 
@@ -269,12 +272,12 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
+        let powers = Powers::<TestCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(256u32);
         assert_eq!(
-            RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap_err(),
-            Error::RangeProof(RangeProofError::ExpectedZeroPolynomial)
+            RangeProof::<TestCurve, TestHash>::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap_err(),
+            CrateError::RangeProof(Error::ExpectedZeroPolynomial)
         );
     }
 
@@ -283,12 +286,12 @@ mod test {
         // KZG setup simulation
         let rng = &mut test_rng();
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
+        let powers = Powers::<TestCurve>::unsafe_setup(tau, 4 * LOG_2_UPPER_BOUND);
 
         let z = Scalar::from(300u32);
         assert_eq!(
-            RangeProof::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap_err(),
-            Error::RangeProof(RangeProofError::ExpectedZeroPolynomial)
+            RangeProof::<TestCurve, TestHash>::new(z, LOG_2_UPPER_BOUND, &powers, rng).unwrap_err(),
+            CrateError::RangeProof(Error::ExpectedZeroPolynomial)
         );
     }
 }
