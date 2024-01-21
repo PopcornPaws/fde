@@ -125,7 +125,7 @@ impl<const N: usize, C: Pairing, D: Clone + Digest> EncryptionProof<N, C, D> {
     pub fn verify_range_proofs(&self, powers: &Powers<C>) -> bool {
         for rps in self.range_proofs.iter() {
             if !rps.iter().all(|rp| rp.verify(MAX_BITS, powers).is_ok()) {
-                return false
+                return false;
             }
         }
         true
@@ -225,9 +225,8 @@ where
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
         let domain_size = self.encryption_proof.ciphers.len();
-        let domain =
-            GeneralEvaluationDomain::<C::ScalarField>::new(domain_size)
-                .ok_or(Error::InvalidFftDomain(domain_size))?;
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(domain_size)
+            .ok_or(Error::InvalidFftDomain(domain_size))?;
 
         // polynomial division check via vanishing polynomial
         let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
@@ -287,7 +286,6 @@ mod test {
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
-    use ark_std::collections::HashMap;
     use ark_std::{test_rng, UniformRand};
 
     const DATA_SIZE: usize = 16;
@@ -314,9 +312,7 @@ mod test {
             .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers).is_ok())));
 
         let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
-
-        let index_map: HashMap<Scalar, usize> =
-            domain.elements().enumerate().map(|(i, e)| (e, i)).collect();
+        let index_map = super::super::index_map(domain);
 
         // Interpolate original polynomial and compute its KZG commitment.
         // This is performed only once by the server
@@ -326,20 +322,14 @@ mod test {
 
         // get subdomain with size suitable for interpolating a polynomial with SUBSET_SIZE
         // coefficients
-        let sub_domain = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
-        let sub_indices = sub_domain
-            .elements()
-            .map(|elem| *index_map.get(&elem).unwrap())
-            .collect::<Vec<usize>>();
-        let sub_data = sub_indices
-            .iter()
-            .map(|&i| evaluations.evals[i])
-            .collect::<Vec<Scalar>>();
-        let sub_evaluations = Evaluations::from_vec_and_domain(sub_data, sub_domain);
-        let f_s_poly: UniPoly = sub_evaluations.interpolate_by_ref();
+        let subdomain = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
+        let subset_indices = super::super::subset_indices(&index_map, &subdomain);
+        let subset_evaluations =
+            super::super::subset_evals(&evaluations, &subset_indices, subdomain);
+        let f_s_poly: UniPoly = subset_evaluations.interpolate_by_ref();
         let com_f_s_poly = powers.commit_g1(&f_s_poly);
 
-        let sub_encryption_proof = encryption_proof.subset(&sub_indices);
+        let sub_encryption_proof = encryption_proof.subset(&subset_indices);
 
         let proof = KzgElgamalProof::new(
             &f_poly,
@@ -350,11 +340,8 @@ mod test {
             rng,
         )
         .unwrap();
-        assert!(proof.verify(
-            com_f_poly,
-            com_f_s_poly,
-            encryption_pk,
-            &powers
-        ).is_ok());
+        assert!(proof
+            .verify(com_f_poly, com_f_s_poly, encryption_pk, &powers)
+            .is_ok());
     }
 }

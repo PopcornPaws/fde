@@ -20,8 +20,11 @@ const N_BITS: u64 = 1024;
 
 #[derive(Debug)]
 pub struct Server {
-    pub pubkey: BigUint,
+    pub p_prime: BigUint,
+    pub q_prime: BigUint,
     pub privkey: BigUint,
+    pub pubkey: BigUint,
+    pub mod_n2: BigUint,
 }
 
 impl Server {
@@ -30,23 +33,25 @@ impl Server {
         // "N_BITS" number of bits
         let (p, q) = primes(N_BITS >> 1, rng);
         let pubkey = &p * &q;
-        let privkey = (p - BigUint::one()).lcm(&(q - BigUint::one()));
+        let privkey = (&p - BigUint::one()).lcm(&(&q - BigUint::one()));
+        let mod_n2 = &pubkey * &pubkey;
 
-        Self { pubkey, privkey }
-    }
-    pub fn modulo_n2(&self) -> BigUint {
-        &self.pubkey * &self.pubkey
+        Self {
+            p_prime: p,
+            q_prime: q,
+            privkey,
+            pubkey,
+            mod_n2,
+        }
     }
 
     pub fn lx(&self, x: &BigUint) -> BigUint {
-        let modulo = self.modulo_n2();
-        debug_assert!(x < &modulo && (x % &self.pubkey) == BigUint::one());
+        debug_assert!(x < &self.mod_n2 && (x % &self.pubkey) == BigUint::one());
         (x - BigUint::one()) / &self.pubkey
     }
 
     pub fn decryption_denominator(&self) -> BigUint {
-        let n_plus_1_pow_sk =
-            (&self.pubkey + BigUint::one()).modpow(&self.privkey, &self.modulo_n2());
+        let n_plus_1_pow_sk = (&self.pubkey + BigUint::one()).modpow(&self.privkey, &self.mod_n2);
         self.lx(&n_plus_1_pow_sk)
     }
 }
@@ -308,17 +313,13 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
     }
 
     pub fn decrypt(&self, server: &Server) -> Vec<BigUint> {
-        let modulo = &server.pubkey * &server.pubkey;
-        let denominator = ((&server.pubkey + BigUint::one()).modpow(&server.privkey, &modulo)
-            - BigUint::one())
-            / &server.pubkey;
+        let denominator = server.decryption_denominator();
         let denominator_inv = modular_inverse(&denominator, &server.pubkey).unwrap();
         self.ct_vec
             .iter()
             .map(|ct| {
-                ((ct.modpow(&server.privkey, &modulo) - BigUint::one()) / &server.pubkey
-                    * &denominator_inv)
-                    % &server.pubkey
+                let ct_lx = server.lx(&ct.modpow(&server.privkey, &server.mod_n2));
+                (ct_lx * &denominator_inv) % &server.pubkey
             })
             .collect()
     }
@@ -326,7 +327,6 @@ impl<C: Pairing, D: Digest> Proof<C, D> {
 
 #[cfg(test)]
 mod test {
-    use super::super::{index_map, subset_evals};
     use super::{modular_inverse, Server, N_BITS};
     use crate::commit::kzg::Powers;
     use crate::tests::{BlsCurve, PaillierEncryptionProof, Scalar, UniPoly};
@@ -368,8 +368,9 @@ mod test {
         let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
         let domain_s = GeneralEvaluationDomain::new(SUBSET_SIZE).unwrap();
         let evaluations = Evaluations::from_vec_and_domain(data, domain);
-        let index_map = index_map(domain);
-        let evaluations_s = subset_evals(&evaluations, &index_map, domain_s);
+        let index_map = super::super::index_map(domain);
+        let subset_indices = super::super::subset_indices(&index_map, &domain_s);
+        let evaluations_s = super::super::subset_evals(&evaluations, &subset_indices, domain_s);
 
         let f_poly: UniPoly = evaluations.interpolate_by_ref();
         let f_s_poly: UniPoly = evaluations_s.interpolate_by_ref();

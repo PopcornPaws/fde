@@ -10,18 +10,24 @@ fn index_map<S: FftField>(domain: GeneralEvaluationDomain<S>) -> HashMap<S, usiz
     domain.elements().enumerate().map(|(i, e)| (e, i)).collect()
 }
 
+fn subset_indices<S: FftField>(
+    index_map: &HashMap<S, usize>,
+    subdomain: &GeneralEvaluationDomain<S>,
+) -> Vec<usize> {
+    subdomain
+        .elements()
+        .map(|e| *index_map.get(&e).unwrap())
+        .collect()
+}
+
 fn subset_evals<S: FftField>(
     evaluations: &Evaluations<S>,
-    index_map: &HashMap<S, usize>,
+    indices: &[usize],
     subdomain: GeneralEvaluationDomain<S>,
 ) -> Evaluations<S> {
     debug_assert!(evaluations.domain().size() >= subdomain.size());
-    let indices = subdomain
-        .elements()
-        .map(|e| *index_map.get(&e).unwrap())
-        .collect::<Vec<usize>>();
     let mut subset_evals = Vec::<S>::new();
-    for index in indices {
+    for &index in indices {
         subset_evals.push(evaluations.evals[index]);
     }
     Evaluations::from_vec_and_domain(subset_evals, subdomain)
