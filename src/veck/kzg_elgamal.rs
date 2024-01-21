@@ -4,6 +4,7 @@ use crate::encrypt::elgamal::{Cipher, ExponentialElgamal as Elgamal, SplitScalar
 use crate::encrypt::EncryptionEngine;
 use crate::hash::Hasher;
 use crate::range_proof::RangeProof;
+use crate::Error;
 use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM as Msm};
 use ark_ff::PrimeField;
@@ -15,14 +16,38 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use digest::Digest;
 
-pub struct PublicInput<const N: usize, C: Pairing, D: Clone + Digest> {
+use thiserror::Error as ErrorT;
+
+#[derive(Debug, ErrorT, PartialEq)]
+pub enum KzgElgamalError {
+    #[error("invalid DLEQ proof for split encryption points")]
+    InvalidDleqProof,
+    #[error("invalid KZG proof")]
+    InvalidKzgProof,
+    #[error("invalid subset polynomial proof")]
+    InvalidSubsetPolynomial,
+    #[error("invalid split scalar verification")]
+    InvalidSplitScalars,
+}
+
+/// A publicly verifiable proof based on the Elgamal encryption scheme.
+pub struct EncryptionProof<const N: usize, C: Pairing, D: Clone + Digest> {
+    /// The actual Elgamal ciphertexts of the encrypted data points.
     pub ciphers: Vec<Cipher<C::G1>>,
+    /// Each ciphertext is split into a set of scalars that, once decrypted, can reconstruct the
+    /// original data point. Since we use the exponential Elgamal encryption scheme, these "short"
+    /// ciphertexts are needed to encrypt split data points in the bruteforceable range: 2^32.
     pub short_ciphers: Vec<[Cipher<C::G1>; N]>,
+    /// Each "short" ciphertext requires a range proof proving that the encrypted value is in the
+    /// bruteforceable range.
     pub range_proofs: Vec<[RangeProof<C, D>; N]>,
+    /// Random encryption points used to encrypt the original data points. These are the `h^r`
+    /// values in the exponential Elgamal scheme: `e = g^m * h^r`, where `e` is the ciphertext, `m`
+    /// is the plaintext.
     pub random_encryption_points: Vec<C::G1Affine>,
 }
 
-impl<const N: usize, C: Pairing, D: Clone + Digest> PublicInput<N, C, D> {
+impl<const N: usize, C: Pairing, D: Clone + Digest> EncryptionProof<N, C, D> {
     pub fn new<R: Rng>(
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
@@ -36,9 +61,9 @@ impl<const N: usize, C: Pairing, D: Clone + Digest> PublicInput<N, C, D> {
 
         for eval in evaluations {
             let split_eval = SplitScalar::from(*eval);
-            let rp = split_eval
-                .splits()
-                .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).unwrap());
+            let rp = split_eval.splits().map(|s| {
+                RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input")
+            });
             let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(encryption_pk, rng);
             let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
                 eval,
@@ -59,6 +84,10 @@ impl<const N: usize, C: Pairing, D: Clone + Digest> PublicInput<N, C, D> {
         }
     }
 
+    /// Generates a subset from the total encrypted data.
+    ///
+    /// Clients might not be interested in the whole dataset, thus the server may generate a subset
+    /// encryption proof to reduce proof verification costs.
     pub fn subset(&self, indices: &[usize]) -> Self {
         let size = indices.len();
         let mut ciphers = Vec::with_capacity(size);
@@ -79,13 +108,36 @@ impl<const N: usize, C: Pairing, D: Clone + Digest> PublicInput<N, C, D> {
             random_encryption_points,
         }
     }
+
+    /// Checks that the sum of split scalars evaluate to the encrypted value via the homomorphic
+    /// properties of Elgamal encryption.
+    pub fn verify_split_scalars(&self) -> bool {
+        for (cipher, short_cipher) in self.ciphers.iter().zip(&self.short_ciphers) {
+            if !cipher.check_encrypted_sum(short_cipher) {
+                return false;
+            }
+        }
+        true
+    }
+
+    // TODO range proofs and short ciphers are not "connected" by anything?
+    // TODO parallelize
+    pub fn verify_range_proofs(&self, powers: &Powers<C>) -> bool {
+        for rps in self.range_proofs.iter() {
+            if !rps.iter().all(|rp| rp.verify(MAX_BITS, powers).is_ok()) {
+                return false
+            }
+        }
+        true
+    }
 }
 
-pub struct Proof<const N: usize, C: Pairing, D> {
-    challenge_eval_commitment: C::G1Affine,
-    challenge_opening_proof: C::G1Affine,
-    dleq_proof: DleqProof<C::G1, D>,
-    com_f_q_poly: C::G1Affine,
+pub struct Proof<const N: usize, C: Pairing, D: Clone + Digest> {
+    pub encryption_proof: EncryptionProof<N, C, D>,
+    pub challenge_eval_commitment: C::G1Affine,
+    pub challenge_opening_proof: C::G1Affine,
+    pub dleq_proof: DleqProof<C::G1, D>,
+    pub com_f_q_poly: C::G1Affine,
     _poly: PhantomData<DensePolynomial<C::ScalarField>>,
     _digest: PhantomData<D>,
 }
@@ -99,18 +151,19 @@ where
         f_poly: &DensePolynomial<C::ScalarField>,
         f_s_poly: &DensePolynomial<C::ScalarField>,
         encryption_sk: &C::ScalarField,
-        input: &PublicInput<N, C, D>,
+        encryption_proof: EncryptionProof<N, C, D>,
         powers: &Powers<C>,
         rng: &mut R,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut hasher = Hasher::<D>::new();
-        input
+        encryption_proof
             .ciphers
             .iter()
             .for_each(|cipher| hasher.update(&cipher.c1()));
 
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len())
-            .expect("valid domain");
+        let domain_size = encryption_proof.ciphers.len();
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(domain_size)
+            .ok_or(Error::InvalidFftDomain(domain_size))?;
 
         // challenge and KZG proof
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
@@ -118,17 +171,21 @@ where
         let challenge_opening_proof = Kzg::proof(f_s_poly, challenge, challenge_eval, powers);
         let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
 
-        // subset polynomial KZG commitment
+        // NOTE According to the docs this should always return Some((q, rem)), so unwrap is fine
+        // https://docs.rs/ark-poly/latest/src/ark_poly/polynomial/univariate/dense.rs.html#144
         let f_q_poly = (f_poly - f_s_poly)
             .divide_by_vanishing_poly(domain)
             .unwrap()
             .0;
+        // subset polynomial KZG commitment
         let com_f_q_poly = powers.commit_g1(&f_q_poly).into();
 
         // DLEQ proof
         let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point: C::G1 =
-            Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations);
+        let q_point: C::G1 = Msm::msm_unchecked(
+            &encryption_proof.random_encryption_points,
+            lagrange_evaluations,
+        );
 
         let dleq_proof = DleqProof::new(
             encryption_sk,
@@ -137,14 +194,15 @@ where
             rng,
         );
 
-        Self {
+        Ok(Self {
+            encryption_proof,
             challenge_eval_commitment,
             challenge_opening_proof,
             dleq_proof,
             com_f_q_poly,
             _poly: PhantomData,
             _digest: PhantomData,
-        }
+        })
     }
 
     pub fn verify(
@@ -152,11 +210,11 @@ where
         com_f_poly: C::G1,
         com_f_s_poly: C::G1,
         encryption_pk: C::G1Affine,
-        input: &PublicInput<N, C, D>,
         powers: &Powers<C>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let mut hasher = Hasher::<D>::new();
-        let c1_points: Vec<C::G1Affine> = input
+        let c1_points: Vec<C::G1Affine> = self
+            .encryption_proof
             .ciphers
             .iter()
             .map(|cipher| {
@@ -166,8 +224,10 @@ where
             })
             .collect();
         let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
-        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(input.ciphers.len())
-            .expect("valid domain");
+        let domain_size = self.encryption_proof.ciphers.len();
+        let domain =
+            GeneralEvaluationDomain::<C::ScalarField>::new(domain_size)
+                .ok_or(Error::InvalidFftDomain(domain_size))?;
 
         // polynomial division check via vanishing polynomial
         let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
@@ -180,8 +240,10 @@ where
 
         // DLEQ check
         let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
-        let q_point: C::G1 =
-            Msm::msm_unchecked(&input.random_encryption_points, lagrange_evaluations); // Q
+        let q_point: C::G1 = Msm::msm_unchecked(
+            &self.encryption_proof.random_encryption_points,
+            lagrange_evaluations,
+        ); // Q
         let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, lagrange_evaluations); // C_t
 
         let q_star = ct_point - self.challenge_eval_commitment; // Q* = C_t / C_alpha
@@ -202,7 +264,18 @@ where
             powers,
         );
 
-        dleq_check && kzg_check && subset_pairing_check
+        // check split scalar encryption validity
+        // check that split scalars are in a brute-forceable range
+
+        if !dleq_check {
+            Err(KzgElgamalError::InvalidDleqProof.into())
+        } else if !kzg_check {
+            Err(KzgElgamalError::InvalidKzgProof.into())
+        } else if !subset_pairing_check {
+            Err(KzgElgamalError::InvalidSubsetPolynomial.into())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -210,7 +283,7 @@ where
 mod test {
     use crate::commit::kzg::Powers;
     use crate::encrypt::elgamal::MAX_BITS;
-    use crate::tests::{BlsCurve, KzgElgamalProof, PublicInput, Scalar, UniPoly};
+    use crate::tests::*;
     use ark_ec::pairing::Pairing;
     use ark_ec::{CurveGroup, Group};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
@@ -233,9 +306,9 @@ mod test {
 
         // Generate random data and public inputs (encrypted data, etc)
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
-        let input = PublicInput::new(&data, &encryption_pk, &powers, rng);
+        let encryption_proof = ElgamalEncryptionProof::new(&data, &encryption_pk, &powers, rng);
 
-        input
+        encryption_proof
             .range_proofs
             .iter()
             .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers).is_ok())));
@@ -266,18 +339,22 @@ mod test {
         let f_s_poly: UniPoly = sub_evaluations.interpolate_by_ref();
         let com_f_s_poly = powers.commit_g1(&f_s_poly);
 
-        let sub_input = input.subset(&sub_indices);
-        sub_input
-            .range_proofs
-            .iter()
-            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers).is_ok())));
+        let sub_encryption_proof = encryption_proof.subset(&sub_indices);
 
-        let proof =
-            KzgElgamalProof::new(&f_poly, &f_s_poly, &encryption_sk, &sub_input, &powers, rng);
-        assert!(proof.verify(com_f_poly, com_f_s_poly, encryption_pk, &sub_input, &powers));
-
-        for (cipher, short_cipher) in sub_input.ciphers.iter().zip(&sub_input.short_ciphers) {
-            assert!(cipher.check_encrypted_sum(short_cipher));
-        }
+        let proof = KzgElgamalProof::new(
+            &f_poly,
+            &f_s_poly,
+            &encryption_sk,
+            sub_encryption_proof,
+            &powers,
+            rng,
+        )
+        .unwrap();
+        assert!(proof.verify(
+            com_f_poly,
+            com_f_s_poly,
+            encryption_pk,
+            &powers
+        ).is_ok());
     }
 }

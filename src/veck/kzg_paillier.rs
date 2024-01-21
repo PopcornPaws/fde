@@ -332,7 +332,6 @@ mod test {
     use crate::tests::{BlsCurve, PaillierEncryptionProof, Scalar, UniPoly};
     use ark_ff::{BigInteger, PrimeField};
     use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
-    use ark_std::collections::HashMap;
     use ark_std::rand::distributions::Distribution;
     use ark_std::{test_rng, One, UniformRand};
     use num_bigint::{BigUint, RandomBits};

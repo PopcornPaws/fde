@@ -20,4 +20,6 @@ pub enum Error {
     InvalidFftDomain(usize),
     #[error(transparent)]
     RangeProof(#[from] range_proof::RangeProofError),
+    #[error(transparent)]
+    KzgElgamalProofError(#[from] veck::kzg_elgamal::KzgElgamalError),
 }

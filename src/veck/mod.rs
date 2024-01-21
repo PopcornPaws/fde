@@ -2,11 +2,7 @@ pub mod kzg_elgamal;
 #[cfg(feature = "paillier")]
 pub mod kzg_paillier;
 
-use crate::commit::kzg::Powers;
-use ark_ec::pairing::Pairing;
-use ark_ec::Group;
 use ark_ff::FftField;
-use ark_poly::univariate::DensePolynomial;
 use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
 use ark_std::collections::HashMap;
 
@@ -32,6 +28,10 @@ fn subset_evals<S: FftField>(
 }
 
 /*
+use crate::commit::kzg::Powers;
+use ark_ec::pairing::Pairing;
+use ark_ec::Group;
+use ark_poly::univariate::DensePolynomial;
 fn subset_pairing_check<C: Pairing>(
     phi: &DensePolynomial<C::ScalarField>,
     phi_s: &DensePolynomial<C::ScalarField>,
