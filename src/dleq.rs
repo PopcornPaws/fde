@@ -62,6 +62,7 @@ where
 mod test {
     use super::*;
     use crate::tests::{G1Affine, Scalar, TestCurve, TestHash};
+    use ark_ec::pairing::Pairing;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand};
 

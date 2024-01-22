@@ -6,8 +6,11 @@ use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::rand::Rng;
 use digest::Digest;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// A publicly verifiable proof based on the Elgamal encryption scheme.
+#[derive(Clone)]
 pub struct EncryptionProof<const N: usize, C: Pairing, D: Clone + Digest> {
     /// The actual Elgamal ciphertexts of the encrypted data points.
     pub ciphers: Vec<Cipher<C::G1>>,
@@ -24,41 +27,53 @@ pub struct EncryptionProof<const N: usize, C: Pairing, D: Clone + Digest> {
     pub random_encryption_points: Vec<C::G1Affine>,
 }
 
-impl<const N: usize, C: Pairing, D: Clone + Digest> EncryptionProof<N, C, D> {
-    pub fn new<R: Rng>(
+impl<const N: usize, C: Pairing, D: Clone + Digest> Default for EncryptionProof<N, C, D> {
+    fn default() -> Self {
+        Self {
+            ciphers: Vec::new(),
+            short_ciphers: Vec::new(),
+            range_proofs: Vec::new(),
+            random_encryption_points: Vec::new(),
+        }
+    }
+}
+
+impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProof<N, C, D> {
+    pub fn new<R: Rng + Send + Sync>(
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Self {
-        let mut random_encryption_points = Vec::with_capacity(evaluations.len());
-        let mut ciphers = Vec::with_capacity(evaluations.len());
-        let mut short_ciphers = Vec::with_capacity(evaluations.len());
-        let mut range_proofs = Vec::with_capacity(evaluations.len());
+        // TODO parallelize this somehow
+        evaluations.iter().fold(Self::default(), |acc, eval| {
+            acc.extend(eval, encryption_pk, powers, rng)
+        })
+    }
 
-        for eval in evaluations {
-            let split_eval = SplitScalar::from(*eval);
-            let rp = split_eval.splits().map(|s| {
-                RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input")
-            });
-            let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(encryption_pk, rng);
-            let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
-                eval,
-                encryption_pk,
-                &rand,
-            );
-            random_encryption_points.push((C::G1Affine::generator() * rand).into_affine());
-            ciphers.push(cipher);
-            short_ciphers.push(sc);
-            range_proofs.push(rp);
-        }
-
-        Self {
-            ciphers,
-            short_ciphers,
-            range_proofs,
-            random_encryption_points,
-        }
+    fn extend<R: Rng + Send + Sync>(
+        mut self,
+        eval: &C::ScalarField,
+        encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
+        powers: &Powers<C>,
+        rng: &mut R,
+    ) -> Self {
+        let split_eval = SplitScalar::from(*eval);
+        let rp = split_eval
+            .splits()
+            .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input"));
+        let (sc, rand) = split_eval.encrypt::<Elgamal<C::G1>, _>(encryption_pk, rng);
+        let cipher = <Elgamal<C::G1> as EncryptionEngine>::encrypt_with_randomness(
+            eval,
+            encryption_pk,
+            &rand,
+        );
+        self.random_encryption_points
+            .push((C::G1Affine::generator() * rand).into_affine());
+        self.ciphers.push(cipher);
+        self.short_ciphers.push(sc);
+        self.range_proofs.push(rp);
+        self
     }
 
     /// Generates a subset from the total encrypted data.
