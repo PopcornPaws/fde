@@ -19,6 +19,7 @@ type EncryptionProof = fde::veck::kzg::elgamal::EncryptionProof<{ N }, TestCurve
 
 fn bench_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("kzg-elgamal");
+    group.sample_size(10);
 
     let data_size = 1 << DATA_LOG_SIZE;
     assert_eq!(data_size, 4096);

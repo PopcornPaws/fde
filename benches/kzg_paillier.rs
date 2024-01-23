@@ -17,6 +17,7 @@ type PaillierEncryptionProof = fde::veck::kzg::paillier::Proof<TestCurve, TestHa
 
 fn bench_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("kzg-paillier");
+    group.sample_size(10);
 
     // TODO until subset openings don't work, use full open
     //let data_size = 1 << 12;
