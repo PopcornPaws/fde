@@ -48,22 +48,22 @@ ark-secp256k1 = "0.4"
 criterion = "0.5"
 sha3 = "0.10"
 
-#[[bench]]
-#name = "kzg-elgamal-veck"
-#path = "benches/kzg_elgamal.rs"
-#harness = false
-#
-#[[bench]]
-#name = "split-elgamal-encryption"
-#path = "benches/elgamal.rs"
-#harness = false
-
-#[[bench]]
-#name = "range-proof"
-#path = "benches/range_proof.rs"
-#harness = false
-
 [[bench]]
 name = "kzg-paillier-veck"
 path = "benches/kzg_paillier.rs"
+harness = false
+
+[[bench]]
+name = "kzg-elgamal-veck"
+path = "benches/kzg_elgamal.rs"
+harness = false
+
+[[bench]]
+name = "split-elgamal-encryption"
+path = "benches/elgamal.rs"
+harness = false
+
+[[bench]]
+name = "range-proof"
+path = "benches/range_proof.rs"
 harness = false

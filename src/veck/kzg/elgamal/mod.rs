@@ -28,6 +28,8 @@ pub enum Error {
     InvalidSubsetPolynomial,
     #[error("invalid split scalar verification")]
     InvalidSplitScalars,
+    #[error("invalid range proofs")]
+    InvalidRangeProofs,
 }
 
 pub struct Proof<const N: usize, C: Pairing, D: Clone + Digest> {
@@ -43,7 +45,7 @@ pub struct Proof<const N: usize, C: Pairing, D: Clone + Digest> {
 impl<const N: usize, C, D> Proof<N, C, D>
 where
     C: Pairing,
-    D: Digest + Clone,
+    D: Digest + Clone + Send + Sync,
 {
     pub fn new<R: Rng>(
         f_poly: &DensePolynomial<C::ScalarField>,
@@ -161,7 +163,6 @@ where
             powers,
         );
 
-        // check split scalar encryption validity
         // check that split scalars are in a brute-forceable range
 
         if !dleq_check {
@@ -170,6 +171,10 @@ where
             Err(Error::InvalidKzgProof.into())
         } else if !subset_pairing_check {
             Err(Error::InvalidSubsetPolynomial.into())
+        } else if !self.encryption_proof.verify_split_scalars() {
+            Err(Error::InvalidSplitScalars.into())
+        } else if !self.encryption_proof.verify_range_proofs(powers) {
+            Err(Error::InvalidRangeProofs.into())
         } else {
             Ok(())
         }
@@ -206,10 +211,7 @@ mod test {
         let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
         let encryption_proof = ElgamalEncryptionProof::new(&data, &encryption_pk, &powers, rng);
 
-        encryption_proof
-            .range_proofs
-            .iter()
-            .for_each(|rps| assert!(rps.iter().all(|rp| rp.verify(MAX_BITS, &powers).is_ok())));
+        assert!(encryption_proof.verify_range_proofs(&powers));
 
         let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
         let index_map = crate::veck::index_map(domain);

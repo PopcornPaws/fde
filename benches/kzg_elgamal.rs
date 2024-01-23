@@ -30,8 +30,14 @@ fn bench_proof(c: &mut Criterion) {
     let encryption_sk = Scalar::rand(rng);
     let encryption_pk = (<TestCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
 
+    println!("Generating encryption proofs for 4096 * 8 split field elements...");
+    println!("This might take a few minutes and it's not included in the actual benchmarks.");
+    let t_start = std::time::Instant::now();
     let data: Vec<Scalar> = (0..data_size).map(|_| Scalar::rand(rng)).collect();
     let encryption_proof = EncryptionProof::new(&data, &encryption_pk, &powers, rng);
+    let elapsed = std::time::Instant::now().duration_since(t_start).as_secs();
+    println!("Generated encryption proofs, elapsed time: {} [s]", elapsed);
+
     let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
     let index_map = fde::veck::index_map(domain);
 
@@ -62,7 +68,8 @@ fn bench_proof(c: &mut Criterion) {
                     sub_encryption_proof.clone(),
                     &powers,
                     rng,
-                ).unwrap();
+                )
+                .unwrap();
             })
         });
 
@@ -74,8 +81,13 @@ fn bench_proof(c: &mut Criterion) {
                 sub_encryption_proof.clone(),
                 &powers,
                 rng,
-            ).unwrap();
-            b.iter(|| assert!(proof.verify(com_f_poly, com_f_s_poly, encryption_pk, &powers).is_ok()))
+            )
+            .unwrap();
+            b.iter(|| {
+                assert!(proof
+                    .verify(com_f_poly, com_f_s_poly, encryption_pk, &powers)
+                    .is_ok())
+            })
         });
     }
 

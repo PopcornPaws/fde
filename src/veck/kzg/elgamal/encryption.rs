@@ -104,22 +104,44 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
     /// Checks that the sum of split scalars evaluate to the encrypted value via the homomorphic
     /// properties of Elgamal encryption.
     pub fn verify_split_scalars(&self) -> bool {
-        for (cipher, short_cipher) in self.ciphers.iter().zip(&self.short_ciphers) {
-            if !cipher.check_encrypted_sum(short_cipher) {
-                return false;
-            }
-        }
-        true
+        #[cfg(feature = "parallel")]
+        let result = self
+            .ciphers
+            .par_iter()
+            .zip(&self.short_ciphers)
+            .fold(
+                || true,
+                |acc, (cipher, short_cipher)| acc && cipher.check_encrypted_sum(short_cipher),
+            )
+            .reduce(|| true, |acc: bool, sub_boolean: bool| acc && sub_boolean);
+
+        #[cfg(not(feature = "parallel"))]
+        let result = self
+            .ciphers
+            .iter()
+            .zip(&self.short_ciphers)
+            .fold(true, |acc, (cipher, short_cipher)| {
+                acc && cipher.check_encrypted_sum(short_cipher)
+            });
+        result
     }
 
     // TODO range proofs and short ciphers are not "connected" by anything?
-    // TODO parallelize
     pub fn verify_range_proofs(&self, powers: &Powers<C>) -> bool {
-        for rps in self.range_proofs.iter() {
-            if !rps.iter().all(|rp| rp.verify(MAX_BITS, powers).is_ok()) {
-                return false;
-            }
-        }
-        true
+        #[cfg(feature = "parallel")]
+        let result = self
+            .range_proofs
+            .par_iter()
+            .fold(
+                || true,
+                |acc, rps| acc && rps.par_iter().all(|rp| rp.verify(MAX_BITS, powers).is_ok()),
+            )
+            .reduce(|| true, |acc: bool, sub_boolean: bool| acc && sub_boolean);
+
+        #[cfg(not(feature = "parallel"))]
+        let result = self.range_proofs.iter().fold(true, |acc, rps| {
+            acc && rps.par_iter.all(|rp| rp.verify(MAX_BITS, powers)).is_ok()
+        });
+        result
     }
 }

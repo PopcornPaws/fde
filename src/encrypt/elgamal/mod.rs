@@ -15,6 +15,11 @@ pub const MAX_BITS: usize = 32;
 
 pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 
+/// Exponential Elgamal encryption scheme ciphertext.
+///
+/// It contains `c1 = g^y` and `c2 = g^m * h^y` where `g` is a group generator, `h = g^x` is the
+/// public encryption key computed from the secret `x` key, `y` is some random scalar and `m` is
+/// the message to be encrypted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
 
@@ -87,8 +92,11 @@ impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
         key: &Self::EncryptionKey,
         randomness: &Self::PlainText,
     ) -> Self::Cipher {
+        // h^y
         let shared_secret = *key * randomness;
+        // g^y
         let c1 = <C::Affine as AffineRepr>::generator() * randomness;
+        // g^m * h^y
         let c2 = <C::Affine as AffineRepr>::generator() * data + shared_secret;
         Cipher([c1.into_affine(), c2.into_affine()])
     }

@@ -1,13 +1,13 @@
 use ark_bls12_381::Bls12_381 as BlsCurve;
 use ark_ec::pairing::Pairing;
-use ark_ff::{PrimeField, BigInteger};
+use ark_ff::{BigInteger, PrimeField};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{EvaluationDomain, Evaluations, GeneralEvaluationDomain};
 use ark_std::{test_rng, UniformRand};
 use criterion::{criterion_group, criterion_main, Criterion};
-use num_bigint::BigUint;
 use fde::commit::kzg::Powers;
 use fde::veck::kzg::paillier::Server;
+use num_bigint::BigUint;
 
 type TestCurve = ark_bls12_381::Bls12_381;
 type TestHash = sha3::Keccak256;
