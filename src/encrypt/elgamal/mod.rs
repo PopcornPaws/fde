@@ -23,10 +23,17 @@ pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
 
+impl<C: CurveGroup> Default for Cipher<C> {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
 impl<C: CurveGroup> Zero for Cipher<C> {
     fn zero() -> Self {
         Self([C::Affine::zero(); 2])
     }
+
     fn is_zero(&self) -> bool {
         self.c0().is_zero() && self.c1().is_zero()
     }

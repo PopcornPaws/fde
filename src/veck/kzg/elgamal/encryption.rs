@@ -43,15 +43,28 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         evaluations: &[C::ScalarField],
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
         powers: &Powers<C>,
-        rng: &mut R,
+        _rng: &mut R,
     ) -> Self {
-        // TODO parallelize this somehow
-        evaluations.iter().fold(Self::default(), |acc, eval| {
-            acc.extend(eval, encryption_pk, powers, rng)
-        })
+        #[cfg(not(feature = "parallel"))]
+        let proof = evaluations.iter().fold(Self::default(), |acc, eval| {
+            acc.append(eval, encryption_pk, powers, _rng)
+        });
+
+        #[cfg(feature = "parallel")]
+        let proof = evaluations
+            .par_iter()
+            .fold(
+                || Self::default(),
+                |acc, eval| {
+                    let rng = &mut ark_std::rand::thread_rng();
+                    acc.append(eval, encryption_pk, powers, rng)
+                },
+            )
+            .reduce(|| Self::default(), |acc, proof| acc.extend(proof));
+        proof
     }
 
-    fn extend<R: Rng + Send + Sync>(
+    fn append<R: Rng>(
         mut self,
         eval: &C::ScalarField,
         encryption_pk: &<Elgamal<C::G1> as EncryptionEngine>::EncryptionKey,
@@ -73,6 +86,15 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         self.ciphers.push(cipher);
         self.short_ciphers.push(sc);
         self.range_proofs.push(rp);
+        self
+    }
+
+    fn extend(mut self, other: Self) -> Self {
+        self.random_encryption_points
+            .extend(other.random_encryption_points);
+        self.ciphers.extend(other.ciphers);
+        self.short_ciphers.extend(other.short_ciphers);
+        self.range_proofs.extend(other.range_proofs);
         self
     }
 
@@ -143,5 +165,41 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
             acc && rps.par_iter.all(|rp| rp.verify(MAX_BITS, powers)).is_ok()
         });
         result
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::tests::*;
+    use ark_ec::Group;
+    use ark_std::{test_rng, UniformRand};
+
+    const DATA_SIZE: usize = 16;
+
+    type ElgamalEncryptionProof = EncryptionProof<{ N }, TestCurve, TestHash>;
+
+    #[test]
+    fn encryption_proof() {
+        let rng = &mut test_rng();
+        let tau = Scalar::rand(rng); // "secret" tau
+        let powers = Powers::<TestCurve>::unsafe_setup(tau, (DATA_SIZE + 1).max(MAX_BITS * 4)); // generate powers of tau size DATA_SIZE
+
+        let encryption_sk = Scalar::rand(rng);
+        let encryption_pk = (<TestCurve as Pairing>::G1::generator() * encryption_sk).into_affine();
+
+        let data: Vec<Scalar> = (0..DATA_SIZE).map(|_| Scalar::rand(rng)).collect();
+        let mut encryption_proof = ElgamalEncryptionProof::new(&data, &encryption_pk, &powers, rng);
+
+        assert!(encryption_proof.verify_split_scalars());
+        assert!(encryption_proof.verify_range_proofs(&powers));
+
+        // manually modify the encryption proof so that it fails
+        encryption_proof.short_ciphers[DATA_SIZE - 3][2] = Default::default();
+        assert!(!encryption_proof.verify_split_scalars());
+
+        encryption_proof.range_proofs[DATA_SIZE - 3][3] =
+            RangeProof::new(Scalar::from(123u8), 10, &powers, rng).unwrap();
+        assert!(!encryption_proof.verify_range_proofs(&powers));
     }
 }
