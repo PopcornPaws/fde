@@ -53,13 +53,10 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         #[cfg(feature = "parallel")]
         let proof = evaluations
             .par_iter()
-            .fold(
-                Self::default,
-                |acc, eval| {
-                    let rng = &mut ark_std::rand::thread_rng();
-                    acc.append(eval, encryption_pk, powers, rng)
-                },
-            )
+            .fold(Self::default, |acc, eval| {
+                let rng = &mut ark_std::rand::thread_rng();
+                acc.append(eval, encryption_pk, powers, rng)
+            })
             .reduce(Self::default, |acc, proof| acc.extend(proof));
         proof
     }
