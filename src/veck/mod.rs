@@ -36,7 +36,7 @@ pub fn subset_evals<S: FftField>(
 }
 
 /*
-// TODO some paillier subset toy examples
+// TODO some paillier subset toy examples https://github.com/PopcornPaws/fde/issues/9
 use crate::commit::kzg::Powers;
 use ark_ec::pairing::Pairing;
 use ark_ec::Group;

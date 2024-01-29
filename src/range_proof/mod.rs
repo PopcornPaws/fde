@@ -69,7 +69,6 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
     pub fn new<R: Rng>(
         z: C::ScalarField,
         n: usize,
-        //maybe_randomness: Option<C::G1>,
         powers: &Powers<C>,
         rng: &mut R,
     ) -> Result<Self, CrateError> {
@@ -96,11 +95,6 @@ impl<C: Pairing, D: Digest> RangeProof<C, D> {
         hasher.update(&domain.group_gen());
         hasher.update(&f_commitment);
         hasher.update(&g_commitment);
-
-        // TODO
-        //if let Some(rand) = maybe_randomness {
-        //    hasher.update(C::G1::generator() * z + randomness);
-        //}
 
         let tau = hasher.next_scalar(b"tau");
         let rho = hasher.next_scalar(b"rho");

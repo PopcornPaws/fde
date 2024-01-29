@@ -54,13 +54,13 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         let proof = evaluations
             .par_iter()
             .fold(
-                || Self::default(),
+                Self::default,
                 |acc, eval| {
                     let rng = &mut ark_std::rand::thread_rng();
                     acc.append(eval, encryption_pk, powers, rng)
                 },
             )
-            .reduce(|| Self::default(), |acc, proof| acc.extend(proof));
+            .reduce(Self::default, |acc, proof| acc.extend(proof));
         proof
     }
 
@@ -149,6 +149,7 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
     }
 
     // TODO range proofs and short ciphers are not "connected" by anything?
+    // https://github.com/PopcornPaws/fde/issues/13
     pub fn verify_range_proofs(&self, powers: &Powers<C>) -> bool {
         #[cfg(feature = "parallel")]
         let result = self

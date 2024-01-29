@@ -20,6 +20,7 @@ fn bench_proof(c: &mut Criterion) {
     group.sample_size(10);
 
     // TODO until subset openings don't work, use full open
+    // https://github.com/PopcornPaws/fde/issues/9
     //let data_size = 1 << 12;
     //let data: Vec<Scalar> = (0..data_size).map(|_| Scalar::rand(rng)).collect();
     //let domain = GeneralEvaluationDomain::new(DATA_SIZE).unwrap();
@@ -29,7 +30,7 @@ fn bench_proof(c: &mut Criterion) {
     let server = Server::new(rng);
 
     for i in 0..=12 {
-        // TODO remove this once subset proofs work
+        // TODO remove this once subset proofs work https://github.com/PopcornPaws/fde/issues/9
         let data_size = 1 << i;
         let subset_size = 1 << i;
         let proof_gen_name = format!("proof-gen-{}", subset_size);
