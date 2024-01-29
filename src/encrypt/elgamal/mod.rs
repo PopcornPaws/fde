@@ -5,7 +5,7 @@ pub use split_scalar::SplitScalar;
 use utils::shift_scalar;
 
 use super::EncryptionEngine;
-use ark_ec::{AffineRepr, CurveGroup}; //, ScalarMul, VariableBaseMSM as Msm};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::marker::PhantomData;
 use ark_std::ops::{Add, Mul};
 use ark_std::rand::Rng;
@@ -15,13 +15,25 @@ pub const MAX_BITS: usize = 32;
 
 pub struct ExponentialElgamal<C>(pub PhantomData<C>);
 
+/// Exponential Elgamal encryption scheme ciphertext.
+///
+/// It contains `c1 = g^y` and `c2 = g^m * h^y` where `g` is a group generator, `h = g^x` is the
+/// public encryption key computed from the secret `x` key, `y` is some random scalar and `m` is
+/// the message to be encrypted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cipher<C: CurveGroup>([C::Affine; 2]);
+
+impl<C: CurveGroup> Default for Cipher<C> {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
 
 impl<C: CurveGroup> Zero for Cipher<C> {
     fn zero() -> Self {
         Self([C::Affine::zero(); 2])
     }
+
     fn is_zero(&self) -> bool {
         self.c0().is_zero() && self.c1().is_zero()
     }
@@ -87,8 +99,11 @@ impl<C: CurveGroup> EncryptionEngine for ExponentialElgamal<C> {
         key: &Self::EncryptionKey,
         randomness: &Self::PlainText,
     ) -> Self::Cipher {
+        // h^y
         let shared_secret = *key * randomness;
+        // g^y
         let c1 = <C::Affine as AffineRepr>::generator() * randomness;
+        // g^m * h^y
         let c2 = <C::Affine as AffineRepr>::generator() * data + shared_secret;
         Cipher([c1.into_affine(), c2.into_affine()])
     }
@@ -122,10 +137,13 @@ impl<C: CurveGroup> ExponentialElgamal<C> {
 
 #[cfg(test)]
 mod test {
-    use crate::encrypt::EncryptionEngine;
-    use crate::tests::{Elgamal, G1Affine, Scalar, SplitScalar};
+    use super::*;
+    use crate::tests::{G1Affine, Scalar, TestCurve, N};
+    use ark_ec::pairing::Pairing;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand};
+
+    type Elgamal = ExponentialElgamal<<TestCurve as Pairing>::G1>;
 
     #[test]
     fn exponential_elgamal() {
@@ -197,7 +215,7 @@ mod test {
     fn split_encryption() {
         let rng = &mut test_rng();
         let scalar = Scalar::rand(rng);
-        let split_scalar = SplitScalar::from(scalar);
+        let split_scalar = SplitScalar::<{ N }, Scalar>::from(scalar);
         let secret = Scalar::rand(rng);
         let encryption_key = (G1Affine::generator() * secret).into_affine();
 

@@ -84,15 +84,18 @@ impl<const N: usize, S: PrimeField> From<S> for SplitScalar<N, S> {
 
 #[cfg(test)]
 mod test {
-    use crate::encrypt::EncryptionEngine;
-    use crate::tests::{Elgamal, G1Affine, Scalar, SplitScalar};
+    use super::*;
+    use crate::tests::{G1Affine, Scalar, TestCurve, N};
+    use ark_ec::pairing::Pairing;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::{test_rng, UniformRand, Zero};
+
+    type Elgamal = super::super::ExponentialElgamal<<TestCurve as Pairing>::G1>;
 
     #[test]
     fn scalar_splitting() {
         let scalar = Scalar::zero();
-        let split_scalar = SplitScalar::from(scalar);
+        let split_scalar = SplitScalar::<{ N }, Scalar>::from(scalar);
         let reconstructed_scalar = split_scalar.reconstruct();
         assert_eq!(scalar, reconstructed_scalar);
 
@@ -100,7 +103,7 @@ mod test {
         let max_scalar = Scalar::from(u32::MAX);
         for _ in 0..10 {
             let scalar = Scalar::rand(rng);
-            let split_scalar = SplitScalar::from(scalar);
+            let split_scalar = SplitScalar::<{ N }, Scalar>::from(scalar);
             for split in split_scalar.splits() {
                 assert!(split <= &max_scalar);
             }
@@ -114,7 +117,7 @@ mod test {
         let rng = &mut test_rng();
         let encryption_pk = (G1Affine::generator() * Scalar::rand(rng)).into_affine();
         let scalar = Scalar::rand(rng);
-        let split_scalar = SplitScalar::from(scalar);
+        let split_scalar = SplitScalar::<{ N }, Scalar>::from(scalar);
 
         let (short_ciphers, elgamal_r) = split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
         let long_cipher = <Elgamal as EncryptionEngine>::encrypt_with_randomness(

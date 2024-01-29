@@ -1,5 +1,5 @@
-use super::RangeProofError;
-use crate::Error;
+use super::Error;
+use crate::Error as CrateError;
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain};
@@ -56,9 +56,12 @@ pub fn w1_w2<S: PrimeField>(
     domain: &GeneralEvaluationDomain<S>,
     f_poly: &DensePolynomial<S>,
     g_poly: &DensePolynomial<S>,
-) -> Result<(DensePolynomial<S>, DensePolynomial<S>), Error> {
+) -> Result<(DensePolynomial<S>, DensePolynomial<S>), CrateError> {
     let one = S::one();
-    let w_n_minus_1 = domain.elements().last().ok_or(Error::InvalidFftDomain(0))?;
+    let w_n_minus_1 = domain
+        .elements()
+        .last()
+        .ok_or(CrateError::InvalidFftDomain(0))?;
 
     // polynomial: P(x) = x - w^(n-1)
     let x_minus_w_n_minus_1_poly = DensePolynomial::from_coefficients_slice(&[-w_n_minus_1, one]);
@@ -84,13 +87,13 @@ pub fn w3<S: PrimeField>(
     domain: &GeneralEvaluationDomain<S>,
     domain_2n: &GeneralEvaluationDomain<S>,
     g_poly: &DensePolynomial<S>,
-) -> Result<DensePolynomial<S>, Error> {
+) -> Result<DensePolynomial<S>, CrateError> {
     // w3: [g(X) - 2g(Xw)] * [1 - g(X) + 2g(Xw)] * [X - w^(n-1)]
     // degree of g = n - 1
     // degree of w3 = (2n - 1) + (2n - 1) + 1 = 4n - 1
     // the new domain can be of size 4n
     let domain_4n = GeneralEvaluationDomain::<S>::new(2 * domain_2n.size())
-        .ok_or(Error::InvalidFftDomain(2 * domain_2n.size()))?;
+        .ok_or(CrateError::InvalidFftDomain(2 * domain_2n.size()))?;
 
     // find evaluations of g in the new domain
     let mut g_evals = domain_4n.fft(g_poly);
@@ -104,7 +107,10 @@ pub fn w3<S: PrimeField>(
     g_evals.push(g_evals[3]);
 
     // calculate evaluations of w3
-    let w_n_minus_1 = domain.elements().last().ok_or(Error::InvalidFftDomain(0))?;
+    let w_n_minus_1 = domain
+        .elements()
+        .last()
+        .ok_or(CrateError::InvalidFftDomain(0))?;
     let two = S::from(2u8);
     let w3_evals: Vec<S> = domain_4n
         .elements()
@@ -140,16 +146,16 @@ pub fn quotient<S: PrimeField>(
     w2_poly: &DensePolynomial<S>,
     w3_poly: &DensePolynomial<S>,
     tau: S,
-) -> Result<DensePolynomial<S>, Error> {
+) -> Result<DensePolynomial<S>, CrateError> {
     // find linear combination of w1, w2, w3
     let lc = w1_poly + &(w2_poly * tau) + w3_poly * tau.square();
     let (quotient_poly, rem) = lc
         .divide_by_vanishing_poly(*domain)
-        .ok_or(Error::InvalidFftDomain(domain.size()))?;
+        .ok_or(CrateError::InvalidFftDomain(domain.size()))?;
     // since the linear combination should also satisfy all roots of unity, q_rem should be a zero
     // polynomial
     if !rem.is_zero() {
-        Err(RangeProofError::ExpectedZeroPolynomial.into())
+        Err(Error::ExpectedZeroPolynomial.into())
     } else {
         Ok(quotient_poly)
     }
@@ -158,7 +164,7 @@ pub fn quotient<S: PrimeField>(
 #[cfg(test)]
 mod test {
     use crate::commit::kzg::Powers;
-    use crate::tests::{BlsCurve, Scalar};
+    use crate::tests::{Scalar, TestCurve};
     use ark_ec::pairing::Pairing;
     use ark_ec::CurveGroup;
     use ark_ff::{Field, PrimeField};
@@ -329,7 +335,7 @@ mod test {
         let domain_2n = GeneralEvaluationDomain::<Scalar>::new(2 * n).unwrap();
         // KZG setup
         let tau = Scalar::rand(rng); // "secret" tau
-        let powers = Powers::<BlsCurve>::unsafe_setup(tau, 4 * n);
+        let powers = Powers::<TestCurve>::unsafe_setup(tau, 4 * n);
 
         // random numbers
         let r = Scalar::rand(rng);
@@ -353,7 +359,7 @@ mod test {
         let w_cap_commitment_expected = powers.commit_g1(&w_cap_poly);
 
         // calculate w_cap commitment fact that commitment scheme is additively homomorphic
-        let w_cap_commitment_calculated = super::super::utils::w_cap::<<BlsCurve as Pairing>::G1>(
+        let w_cap_commitment_calculated = super::super::utils::w_cap::<<TestCurve as Pairing>::G1>(
             domain.size(),
             f_commitment,
             q_commitment,
