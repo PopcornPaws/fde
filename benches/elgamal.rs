@@ -14,19 +14,26 @@ type Scalar = <BlsCurve as Pairing>::ScalarField;
 type SplitScalar = fde::encrypt::elgamal::SplitScalar<{ N }, Scalar>;
 type Elgamal = fde::encrypt::elgamal::ExponentialElgamal<<BlsCurve as Pairing>::G1>;
 
+// NOTE in case of 4096 scalars, we have 4096 * N split scalars
 fn bench_elgamal(c: &mut Criterion) {
     let mut group = c.benchmark_group("split-elgamal");
+    group.sample_size(10);
 
     let rng = &mut test_rng();
     let encryption_sk = Scalar::rand(rng);
     let encryption_pk = (G1Affine::generator() * encryption_sk).into_affine();
 
-    let scalars: Vec<Scalar> = (0..4096).map(|_| Scalar::rand(rng)).collect();
+    let scalars: Vec<Scalar> = (0..4096 * N).map(|_| Scalar::rand(rng)).collect();
 
     let mut ciphers = Vec::with_capacity(scalars.len());
     let mut split_ciphers = Vec::with_capacity(scalars.len());
 
-    scalars.iter().for_each(|scalar| {
+    println!("GENERATING ENCRYPTIONS...");
+    let now = std::time::Instant::now();
+    scalars.iter().enumerate().for_each(|(i, scalar)| {
+        if i % 256 == 0 {
+            println!("{}/{}", i, 4096 * N);
+        }
         let split_scalar = SplitScalar::from(*scalar);
         let (split_cipher, randomness) = split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
         let long_cipher = <Elgamal as EncryptionEngine>::encrypt_with_randomness(
@@ -38,22 +45,8 @@ fn bench_elgamal(c: &mut Criterion) {
         ciphers.push(long_cipher);
         split_ciphers.push(split_cipher);
     });
-
-    group.bench_function("encrypt-scalars", |b| {
-        b.iter(|| {
-            #[cfg(not(feature = "parallel"))]
-            scalars.iter().for_each(|scalar| {
-                let split_scalar = SplitScalar::from(*scalar);
-                split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
-            });
-            #[cfg(feature = "parallel")]
-            scalars.par_iter().for_each(|scalar| {
-                let rng = &mut test_rng();
-                let split_scalar = SplitScalar::from(*scalar);
-                split_scalar.encrypt::<Elgamal, _>(&encryption_pk, rng);
-            });
-        })
-    });
+    let elapsed = std::time::Instant::now().duration_since(now).as_secs();
+    println!("ELAPSED: {} [s]", elapsed);
 
     for i in 0..=12 {
         let subset_size = 1 << i;
@@ -63,7 +56,7 @@ fn bench_elgamal(c: &mut Criterion) {
                 #[cfg(not(feature = "parallel"))]
                 ciphers
                     .iter()
-                    .take(subset_size)
+                    .take(subset_size * N)
                     .zip(&split_ciphers)
                     .for_each(|(cipher, split_cipher)| {
                         assert!(cipher.check_encrypted_sum(split_cipher));
@@ -71,7 +64,7 @@ fn bench_elgamal(c: &mut Criterion) {
                 #[cfg(feature = "parallel")]
                 ciphers
                     .par_iter()
-                    .take(subset_size)
+                    .take(subset_size * N)
                     .zip(&split_ciphers)
                     .for_each(|(long_cipher, split_cipher)| {
                         assert!(long_cipher.check_encrypted_sum(split_cipher));

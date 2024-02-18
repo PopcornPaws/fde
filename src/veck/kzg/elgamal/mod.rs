@@ -171,10 +171,10 @@ where
             Err(Error::InvalidKzgProof.into())
         } else if !subset_pairing_check {
             Err(Error::InvalidSubsetPolynomial.into())
-        //} else if !self.encryption_proof.verify_split_scalars() {
-        //    Err(Error::InvalidSplitScalars.into())
-        //} else if !self.encryption_proof.verify_range_proofs(powers) {
-        //    Err(Error::InvalidRangeProofs.into())
+        } else if !self.encryption_proof.verify_split_scalars() {
+            Err(Error::InvalidSplitScalars.into())
+        } else if !self.encryption_proof.verify_range_proofs(powers) {
+            Err(Error::InvalidRangeProofs.into())
         } else {
             Ok(())
         }
