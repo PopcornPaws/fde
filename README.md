@@ -15,6 +15,26 @@ Currently available at the following links:
 
 ## Quickstart
 
+The protocols in the paper are implemented in the [Rust programming language](https://www.rust-lang.org/), relying heavily on cryptographic libraries from [arkworks](https://github.com/arkworks-rs). The source code is found in [src](https://github.com/PopcornPaws/fde/tree/main/src). Respective smart contracts were implemented in [Solidity](https://soliditylang.org/) and they are found in [contracts](https://github.com/PopcornPaws/fde/tree/main/contracts).
+
+### Installing, building and running tests
+
+First you need to install `rustup` by following the steps outlined [here](https://www.rust-lang.org/learn/get-started).
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Clone the repository and jump into the cloned directory
+```sh
+git clone https://github.com/PopcornPaws/fde.git
+cd fde
+```
+- build: `cargo build --release` (the `release` flag is optional)
+- test: `cargo test --release` (the `release` flag is optional)
+- benchmark: `cargo bench`
+
+### Contracts
 Requires [Foundry](https://book.getfoundry.sh/getting-started/installation).
 
 Install: `forge install`
