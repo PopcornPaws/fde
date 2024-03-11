@@ -1,25 +1,24 @@
 # Atomic BlockChain Data Exchange with Fairness
 
-FDE protocols allow a server and a client to exchange a KZG-committed data securely and fairly. 
+FDE protocols allow a server and a client to exchange KZG-committed data securely and fairly. 
 The server holds all the data, while the client only knows a KZG (polynomial commitment) to the data. For more details on the protocol, refer to our research paper.
-Such a protocol is useful for Ethereum in a post [EIP-4844](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-4844.md) world. In particular, blocks will contain blob data (KZG commitments) that commit to rollup data. The block header only contains KZG commitments, while full nodes store the entire data. It is reasonable to assume that an efficient market will emerge for downloading rollup data from full nodes.
+This protocol is useful for Ethereum in a post [EIP-4844](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-4844.md) world. In particular, blocks will contain blob data (KZG commitments) that commit to rollup data. The block header only contains KZG commitments, while full nodes store the entire data. It is reasonable to assume that an efficient market will emerge for downloading rollup data from full nodes.
 This work creates protocols that allow full nodes to exchange the committed data for money in an atomic and fair manner.
 
 Title: Atomic BlockChain Data Exchange with Fairness
 
 Authors: Ertem Nusret Tas, Valeria Nikolaenko, István A. Seres, Márk Melczer, Yinuo Zhang, Mahimna Kelkar, Joseph Bonneau. 
 
-Currently available at the following links:
-* IACR [eprint link](https://eprint.iacr.org/2024/420.pdf). (Gotta update this later)
-* Researchgate [link](). (Gotta update this later)
+Currently available at the following link:
+* IACR [eprint link](https://eprint.iacr.org/2024/418.pdf).
 
 ## Quickstart
 
 The protocols in the paper are implemented in the [Rust programming language](https://www.rust-lang.org/), relying heavily on cryptographic libraries from [arkworks](https://github.com/arkworks-rs). The source code is found in [src](https://github.com/PopcornPaws/fde/tree/main/src). Respective smart contracts were implemented in [Solidity](https://soliditylang.org/) and they are found in [contracts](https://github.com/PopcornPaws/fde/tree/main/contracts).
 
-### Installing, building and running tests
+### Installing, building, and running tests
 
-First you need to install `rustup` by following the steps outlined [here](https://www.rust-lang.org/learn/get-started).
+First, you must install `rustup` by following the steps outlined [here](https://www.rust-lang.org/learn/get-started).
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
