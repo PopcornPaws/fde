@@ -98,9 +98,18 @@ contract FDE is BN254 {
     function withdrawPaymentAfterTimout(
         address _seller
     ) public {
-        require(!orderBook[_seller][msg.sender].secretKeySent, "The encryption secret key has already been sent by the seller!");
-        require(block.timestamp >= orderBook[_seller][msg.sender].timeOut, "The seller has still time to provide the encryption secret key!");
+        agreedPurchase memory order = orderBook[_seller][msg.sender];
+
+        require(!order.secretKeySent, "The encryption secret key has already been sent by the seller!");
+        require(block.timestamp >= order.timeOut, "The seller has still time to provide the encryption secret key!");
+        require(order.fundsLocked, "Funds have not been locked yet!");
+
         orderBook[_seller][msg.sender].ongoingPurchase = false;
-        payable(msg.sender).transfer(orderBook[_seller][msg.sender].agreedPrice);
+
+        // forward all gas to the recipient
+        (bool success, ) = payable(msg.sender).call{value: order.agreedPrice}("");
+
+        // revert on error
+        require(success, "Transfer failed.");
     }
 }
