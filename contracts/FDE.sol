@@ -76,13 +76,16 @@ contract FDE is BN254 {
         
     ) public {
         uint256 balance = balances[msg.sender];
-        if (balance == 0) {
-            return;
+        if (balance != 0) {
+            // We reset the balance to zero before the transfer to prevent reentrancy attacks
+            balances[msg.sender]=0;
+
+            // forward all gas to the recipient
+            (bool success, ) = payable(msg.sender).call{value: balance}("");
+
+            // revert on error
+            require(success, "Transfer failed.");
         }
-
-        balances[msg.sender]=0;
-
-        payable(msg.sender).transfer(balances[msg.sender]);
     }
 
     // Buyer can withdraw its money if seller does not reveal the correct secret key.
