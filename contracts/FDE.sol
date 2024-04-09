@@ -15,7 +15,6 @@ contract FDE is BN254 {
         Types.G1Point sellerPubKey;
         bool ongoingPurchase;
         bool fundsLocked;
-        bool secretKeySent;
     }
 
     // We assume that for a given seller-buyer pair, there is only a single purchase at any given time
@@ -42,11 +41,14 @@ contract FDE is BN254 {
         address _buyer
     ) public  {
         require(!orderBook[msg.sender][_buyer].ongoingPurchase, "There can only be one purchase per buyer-seller pair!");
-        orderBook[msg.sender][_buyer].timeOut = _timeOut;
-        orderBook[msg.sender][_buyer].agreedPrice = _agreedPrice;
-        Types.G1Point memory _sellerPubKey = Types.G1Point(_pubKeyX, _pubKeyY);
-        orderBook[msg.sender][_buyer].sellerPubKey = _sellerPubKey;
-        orderBook[msg.sender][_buyer].ongoingPurchase = true;
+
+        orderBook[msg.sender][_buyer] = agreedPurchase({
+            timeOut: _timeOut,
+            agreedPrice: _agreedPrice,
+            sellerPubKey: Types.G1Point(_pubKeyX, _pubKeyY),
+            ongoingPurchase: true,
+            fundsLocked: false
+        });
 
         emit BroadcastPubKey(msg.sender, _buyer, _pubKeyX, _timeOut, _agreedPrice); 
     }
@@ -57,7 +59,8 @@ contract FDE is BN254 {
     ) public payable {
         agreedPurchase memory order = orderBook[_seller][msg.sender];
 
-        require(!order.secretKeySent, "Secret keys have been already revealed!");
+        requireOngoingPurchase(order);
+
         require(!order.fundsLocked, "Funds have been already locked!");
         require(msg.value == order.agreedPrice, "The transferred money does not match the agreed price!");
 
@@ -70,7 +73,8 @@ contract FDE is BN254 {
     ) public {
         agreedPurchase memory order = orderBook[msg.sender][_buyer];
 
-        require(!order.secretKeySent, "Secret key has been already revealed.");
+        requireOngoingPurchase(order);
+
         require(mul(P1(),_secKey).x == order.sellerPubKey.x, "Invalid secret key has been provided by the seller!");
 
         // this case is problematic for the seller, because they already revealed the secret key
@@ -78,8 +82,7 @@ contract FDE is BN254 {
         // if the funds have not been locked
         require(order.fundsLocked, "Funds have not been locked yet!");
 
-        orderBook[msg.sender][_buyer].secretKeySent = true;
-        orderBook[msg.sender][_buyer].ongoingPurchase = false;
+        _terminateOrder(msg.sender, _buyer);
 
         balances[msg.sender] += order.agreedPrice;
 
@@ -105,21 +108,49 @@ contract FDE is BN254 {
     }
 
     // Buyer can withdraw its money if seller does not reveal the correct secret key.
-    function withdrawPaymentAfterTimout(
+    function withdrawPaymentAfterTimeout(
         address _seller
     ) public {
         agreedPurchase memory order = orderBook[_seller][msg.sender];
 
-        require(!order.secretKeySent, "The encryption secret key has already been sent by the seller!");
+        requireOngoingPurchase(order);
         require(block.timestamp >= order.timeOut, "The seller has still time to provide the encryption secret key!");
         require(order.fundsLocked, "Funds have not been locked yet!");
 
-        orderBook[_seller][msg.sender].ongoingPurchase = false;
+        _terminateOrder(_seller, msg.sender);
 
         // forward all gas to the recipient
         (bool success, ) = payable(msg.sender).call{value: order.agreedPrice}("");
 
         // revert on error
         require(success, "Transfer failed.");
+    }
+
+    /// Key function for state management:
+    /// - can only have a single ongoing purchase per buyer-seller pair
+    /// - order must be ongoing for valid state transition (locking funds, revealing key, triggering refund)
+    /// 
+    /// reverts if:
+    /// - the order never existed
+    /// - it has completed successfully
+    /// - it has expired
+    function requireOngoingPurchase(
+        agreedPurchase memory _order
+    ) internal pure {
+        require(_order.ongoingPurchase, "No such order");
+    }
+
+    /// completely resets the state of an order (after expiration or completion)
+    function _terminateOrder(
+        address _seller,
+        address _buyer
+    ) internal {
+        orderBook[_seller][_buyer] = agreedPurchase({
+            timeOut: 0,
+            agreedPrice: 0,
+            sellerPubKey: Types.G1Point(0, 0),
+            ongoingPurchase: false,
+            fundsLocked: false
+        });
     }
 }
