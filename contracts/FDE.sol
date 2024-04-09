@@ -68,11 +68,21 @@ contract FDE is BN254 {
         uint256 _secKey,
         address _buyer
     ) public {
-        require(!orderBook[msg.sender][_buyer].secretKeySent, "Secret key has been already revealed.");
-        require(mul(P1(),_secKey).x == orderBook[msg.sender][_buyer].sellerPubKey.x, "Invalid secret key has been provided by the seller!");
+        agreedPurchase memory order = orderBook[msg.sender][_buyer];
+
+        require(!order.secretKeySent, "Secret key has been already revealed.");
+        require(mul(P1(),_secKey).x == order.sellerPubKey.x, "Invalid secret key has been provided by the seller!");
+
+        // this case is problematic for the seller, because they already revealed the secret key
+        // but it is important for the health of the protocol that we don't increase their balance
+        // if the funds have not been locked
+        require(order.fundsLocked, "Funds have not been locked yet!");
+
         orderBook[msg.sender][_buyer].secretKeySent = true;
-        balances[msg.sender]+=orderBook[msg.sender][_buyer].agreedPrice;
         orderBook[msg.sender][_buyer].ongoingPurchase = false;
+
+        balances[msg.sender] += order.agreedPrice;
+
         // There is no need to store the secret key in storage
         emit BroadcastSecKey(msg.sender, _buyer, _secKey);
     }
@@ -84,7 +94,7 @@ contract FDE is BN254 {
         uint256 balance = balances[msg.sender];
         if (balance != 0) {
             // We reset the balance to zero before the transfer to prevent reentrancy attacks
-            balances[msg.sender]=0;
+            balances[msg.sender] = 0;
 
             // forward all gas to the recipient
             (bool success, ) = payable(msg.sender).call{value: balance}("");
