@@ -13,8 +13,9 @@ contract FDE is BN254 {
         uint256 timeOut; // The protocol after this timestamp, simply aborts and returns funds.
         uint256 agreedPrice;
         Types.G1Point sellerPubKey;
-        bool  secretKeySent;
         bool ongoingPurchase;
+        bool fundsLocked;
+        bool secretKeySent;
     }
 
     // We assume that for a given seller-buyer pair, there is only a single purchase at any given time
@@ -54,8 +55,13 @@ contract FDE is BN254 {
     function buyerLockPayment(
          address _seller
     ) public payable {
-        require(!orderBook[_seller][msg.sender].secretKeySent, "Secret keys have been already revealed!");
-        require(msg.value == orderBook[_seller][msg.sender].agreedPrice, "The transferred money does not match the agreed price!");
+        agreedPurchase memory order = orderBook[_seller][msg.sender];
+
+        require(!order.secretKeySent, "Secret keys have been already revealed!");
+        require(!order.fundsLocked, "Funds have been already locked!");
+        require(msg.value == order.agreedPrice, "The transferred money does not match the agreed price!");
+
+        orderBook[_seller][msg.sender].fundsLocked = true;
     }
 
     function sellerSendsSecKey(
