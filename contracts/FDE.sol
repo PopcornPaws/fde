@@ -13,8 +13,8 @@ contract FDE is BN254 {
         uint256 timeOut; // The protocol after this timestamp, simply aborts and returns funds.
         uint256 agreedPrice;
         Types.G1Point sellerPubKey;
-        bool  secretKeySent;
         bool ongoingPurchase;
+        bool fundsLocked;
     }
 
     // We assume that for a given seller-buyer pair, there is only a single purchase at any given time
@@ -41,11 +41,14 @@ contract FDE is BN254 {
         address _buyer
     ) public  {
         require(!orderBook[msg.sender][_buyer].ongoingPurchase, "There can only be one purchase per buyer-seller pair!");
-        orderBook[msg.sender][_buyer].timeOut = _timeOut;
-        orderBook[msg.sender][_buyer].agreedPrice = _agreedPrice;
-        Types.G1Point memory _sellerPubKey = Types.G1Point(_pubKeyX, _pubKeyY);
-        orderBook[msg.sender][_buyer].sellerPubKey = _sellerPubKey;
-        orderBook[msg.sender][_buyer].ongoingPurchase = true;
+
+        orderBook[msg.sender][_buyer] = agreedPurchase({
+            timeOut: _timeOut,
+            agreedPrice: _agreedPrice,
+            sellerPubKey: Types.G1Point(_pubKeyX, _pubKeyY),
+            ongoingPurchase: true,
+            fundsLocked: false
+        });
 
         emit BroadcastPubKey(msg.sender, _buyer, _pubKeyX, _timeOut, _agreedPrice); 
     }
@@ -54,19 +57,35 @@ contract FDE is BN254 {
     function buyerLockPayment(
          address _seller
     ) public payable {
-        require(!orderBook[_seller][msg.sender].secretKeySent, "Secret keys have been already revealed!");
-        require(msg.value == orderBook[_seller][msg.sender].agreedPrice, "The transferred money does not match the agreed price!");
+        agreedPurchase memory order = orderBook[_seller][msg.sender];
+
+        requireOngoingPurchase(order);
+
+        require(!order.fundsLocked, "Funds have been already locked!");
+        require(msg.value == order.agreedPrice, "The transferred money does not match the agreed price!");
+
+        orderBook[_seller][msg.sender].fundsLocked = true;
     }
 
     function sellerSendsSecKey(
         uint256 _secKey,
         address _buyer
     ) public {
-        require(!orderBook[msg.sender][_buyer].secretKeySent, "Secret key has been already revealed.");
-        require(mul(P1(),_secKey).x == orderBook[msg.sender][_buyer].sellerPubKey.x, "Invalid secret key has been provided by the seller!");
-        orderBook[msg.sender][_buyer].secretKeySent = true;
-        balances[msg.sender]+=orderBook[msg.sender][_buyer].agreedPrice;
-        orderBook[msg.sender][_buyer].ongoingPurchase = false;
+        agreedPurchase memory order = orderBook[msg.sender][_buyer];
+
+        requireOngoingPurchase(order);
+
+        require(mul(P1(),_secKey).x == order.sellerPubKey.x, "Invalid secret key has been provided by the seller!");
+
+        // this case is problematic for the seller, because they already revealed the secret key
+        // but it is important for the health of the protocol that we don't increase their balance
+        // if the funds have not been locked
+        require(order.fundsLocked, "Funds have not been locked yet!");
+
+        _terminateOrder(msg.sender, _buyer);
+
+        balances[msg.sender] += order.agreedPrice;
+
         // There is no need to store the secret key in storage
         emit BroadcastSecKey(msg.sender, _buyer, _secKey);
     }
@@ -75,18 +94,63 @@ contract FDE is BN254 {
     function withdrawPayment(
         
     ) public {
-        payable(msg.sender).transfer(balances[msg.sender]);
+        uint256 balance = balances[msg.sender];
+        if (balance != 0) {
+            // We reset the balance to zero before the transfer to prevent reentrancy attacks
+            balances[msg.sender] = 0;
 
-        balances[msg.sender]=0;
+            // forward all gas to the recipient
+            (bool success, ) = payable(msg.sender).call{value: balance}("");
+
+            // revert on error
+            require(success, "Transfer failed.");
+        }
     }
 
     // Buyer can withdraw its money if seller does not reveal the correct secret key.
-    function withdrawPaymentAfterTimout(
+    function withdrawPaymentAfterTimeout(
         address _seller
     ) public {
-        require(!orderBook[_seller][msg.sender].secretKeySent, "The encryption secret key has already been sent by the seller!");
-        require(block.timestamp >= orderBook[_seller][msg.sender].timeOut, "The seller has still time to provide the encryption secret key!");
-        orderBook[_seller][msg.sender].ongoingPurchase = false;
-        payable(msg.sender).transfer(orderBook[_seller][msg.sender].agreedPrice);
+        agreedPurchase memory order = orderBook[_seller][msg.sender];
+
+        requireOngoingPurchase(order);
+        require(block.timestamp >= order.timeOut, "The seller has still time to provide the encryption secret key!");
+        require(order.fundsLocked, "Funds have not been locked yet!");
+
+        _terminateOrder(_seller, msg.sender);
+
+        // forward all gas to the recipient
+        (bool success, ) = payable(msg.sender).call{value: order.agreedPrice}("");
+
+        // revert on error
+        require(success, "Transfer failed.");
+    }
+
+    /// Key function for state management:
+    /// - can only have a single ongoing purchase per buyer-seller pair
+    /// - order must be ongoing for valid state transition (locking funds, revealing key, triggering refund)
+    /// 
+    /// reverts if:
+    /// - the order never existed
+    /// - it has completed successfully
+    /// - it has expired
+    function requireOngoingPurchase(
+        agreedPurchase memory _order
+    ) internal pure {
+        require(_order.ongoingPurchase, "No such order");
+    }
+
+    /// completely resets the state of an order (after expiration or completion)
+    function _terminateOrder(
+        address _seller,
+        address _buyer
+    ) internal {
+        orderBook[_seller][_buyer] = agreedPurchase({
+            timeOut: 0,
+            agreedPrice: 0,
+            sellerPubKey: Types.G1Point(0, 0),
+            ongoingPurchase: false,
+            fundsLocked: false
+        });
     }
 }
