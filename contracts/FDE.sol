@@ -75,9 +75,14 @@ contract FDE is BN254 {
     function withdrawPayment(
         
     ) public {
-        payable(msg.sender).transfer(balances[msg.sender]);
+        uint256 balance = balances[msg.sender];
+        if (balance == 0) {
+            return;
+        }
 
         balances[msg.sender]=0;
+
+        payable(msg.sender).transfer(balances[msg.sender]);
     }
 
     // Buyer can withdraw its money if seller does not reveal the correct secret key.
